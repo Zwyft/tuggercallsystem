@@ -1,0 +1,6 @@
+{
+    "claude-dev.apiProvider": "ollama",
+    "claude-dev.ollamaModelId": "qwen2.5-coder:7b",
+    "claude-dev.ollamaBaseUrl": "http://localhost:11434",
+    "workbench.colorTheme": "Solarized Dark"
+}

@@ -1,0 +1,5 @@
+{
+    "model": "qwen-turbo",
+    "prompt": "warmup",
+    "stream": false
+}

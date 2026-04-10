@@ -1,0 +1,7 @@
+tunnel: 7e396994-c4fa-4b4b-9b63-ea500272803e
+credentials-file: /home/jak/.cloudflared/7e396994-c4fa-4b4b-9b63-ea500272803e.json
+
+ingress:
+  - hostname: ai.platium.vip
+    service: http://localhost:3001
+  - service: http_status:404

@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TUGR | Live Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=Outfit:wght@200;400;700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-void: #050505;
+            --bg-surface: #0a0a0a;
+            --glass-surface: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --neon-accent: #00f0ff;
+            --neon-glow: rgba(0, 240, 255, 0.2);
+            --neon-alert: #ff0055;
+            --text-main: #eeeeee;
+            --text-mute: #666666;
+
+            --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            outline: none;
+        }
+
+        body {
+            background-color: var(--bg-void);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(0, 240, 255, 0.03) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(255, 0, 100, 0.03) 0%, transparent 40%);
+        }
+
+        /* Scanline Overlay */
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.05) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            /* Wider for Monitor View */
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* NAV BAR */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .brand {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            font-size: 1.5rem;
+            color: white;
+        }
+
+        .brand span {
+            color: var(--neon-accent);
+        }
+
+        .config-btn {
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: var(--text-mute);
+            padding: 10px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: 0.3s;
+            font-family: 'Space Grotesk', monospace;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        .config-btn:hover {
+            color: white;
+            border-color: white;
+        }
+
+        /* LIVE MONITOR GRID */
+        .monitor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .order-card {
+            background: var(--glass-surface);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 25px;
+            position: relative;
+            overflow: hidden;
+            animation: fadeIn 0.5s ease-out;
+            transition: transform 0.3s;
+        }
+
+        .order-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .order-card.priority {
+            border-left: 4px solid var(--neon-alert);
+        }
+
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-family: 'Space Grotesk', monospace;
+            font-size: 0.9rem;
+            color: var(--text-mute);
+        }
+
+        .timer {
+            color: var(--neon-alert);
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+
+        .order-line {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+            color: white;
+        }
+
+        .order-part {
+            font-size: 1.2rem;
+            color: var(--neon-accent);
+            margin-bottom: 20px;
+        }
+
+        .order-status {
+            display: inline-block;
+            padding: 5px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        /* MODAL (Login/Config) */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: 0.3s;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-card {
+            background: #0f0f0f;
+            border: 1px solid var(--glass-border);
+            padding: 40px;
+            border-radius: 24px;
+            width: 100%;
+            max-width: 400px;
+            transform: scale(0.9);
+            transition: 0.3s var(--ease-out);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-overlay.active .modal-card {
+            transform: scale(1);
+        }
+
+        /* Reusing Input Styles */
+        .input-group {
+            position: relative;
+            margin-bottom: 25px;
+        }
+
+        input,
+        select {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--glass-border);
+            color: white;
+            font-family: 'Space Grotesk', monospace;
+            font-size: 1.1rem;
+            padding: 10px 0;
+            transition: 0.3s;
+        }
+
+        input:focus {
+            border-bottom-color: var(--neon-accent);
+        }
+
+        label {
+            position: absolute;
+            top: 10px;
+            left: 0;
+            color: var(--text-mute);
+            font-size: 0.9rem;
+            pointer-events: none;
+            transition: 0.3s;
+        }
+
+        input:focus~label,
+        input:not(:placeholder-shown)~label {
+            top: -15px;
+            font-size: 0.75rem;
+            color: var(--neon-accent);
+        }
+
+        .btn-main {
+            width: 100%;
+            padding: 15px;
+            background: white;
+            color: black;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.3s;
+            font-family: 'Space Grotesk';
+        }
+
+        .btn-main:hover {
+            background: var(--neon-accent);
+        }
+
+        /* KEYFRAMES */
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- MAIN VIEW: Live Monitor -->
+    <div class="container" id="view-monitor">
+        <nav>
+            <div class="brand">TUGR <span>OPS</span></div>
+            <div class="tuggy-wrapper" style="display:flex; align-items:center; gap: 15px;">
+                <div id="tuggy-status-text" style="font-family:'Space Grotesk'; font-size:0.8rem; color:var(--text-mute); text-align:right; text-transform:uppercase;">Mood:<br/><span style="color:var(--neon-accent)">Happy</span></div>
+                <svg id="tuggy-svg" width="48" height="48" viewBox="0 0 12 12" shape-rendering="crispEdges" style="filter: drop-shadow(0 0 8px var(--neon-glow)); transition: 0.3s;"></svg>
+            </div>
+            <button class="config-btn" onclick="openLogin()">Config Access</button>
+        </nav>
+
+        <h2 style="margin-bottom: 20px; font-weight: 300; color: var(--text-mute);">ACTIVE REQUESTS <span
+                style="color:white; margin-left:10px">3</span></h2>
+
+        <div class="monitor-grid">
+            <!-- Order 1 -->
+            <div class="order-card priority">
+                <div class="order-header">
+                    <span>ID: #8821</span>
+                    <span class="timer">04:12</span>
+                </div>
+                <div class="order-line">LINE 109</div>
+                <div class="order-part">109 Pod Assembly</div>
+                <div class="order-status">AWAITING TUGGER</div>
+            </div>
+
+            <!-- Order 2 -->
+            <div class="order-card">
+                <div class="order-header">
+                    <span>ID: #8824</span>
+                    <span style="color: var(--text-mute)">01:05</span>
+                </div>
+                <div class="order-line">LINE 112</div>
+                <div class="order-part">RH Rails</div>
+                <div class="order-status" style="background: rgba(0, 240, 255, 0.1); color: var(--neon-accent)">
+                    ASSIGNED: T-04</div>
+            </div>
+
+            <!-- Order 3 -->
+            <div class="order-card">
+                <div class="order-header">
+                    <span>ID: #8825</span>
+                    <span style="color: var(--text-mute)">00:30</span>
+                </div>
+                <div class="order-line">LINE 201</div>
+                <div class="order-part">Rear Subframes</div>
+                <div class="order-status">PENDING</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGIN MODAL -->
+    <div class="modal-overlay" id="modal-login">
+        <div class="modal-card">
+            <h2 style="margin-bottom: 30px; font-family:'Space Grotesk'; font-weight: 300;">SECURE ACCESS</h2>
+            <div class="input-group">
+                <input type="text" id="passcode" placeholder=" " autocomplete="off" inputmode="numeric">
+                <label>Pairing Code</label>
+            </div>
+            <button class="btn-main" onclick="attemptLogin()">AUTHENTICATE</button>
+            <button
+                style="width:100%; background:transparent; border:none; color:var(--text-mute); margin-top:15px; cursor:pointer;"
+                onclick="closeLogin()">CANCEL</button>
+        </div>
+    </div>
+
+    <!-- CONFIG VIEW (Previously Main) -->
+    <div class="container" id="view-config" style="display:none; max-width: 480px;">
+        <nav>
+            <div class="brand">TUGR <span>CONFIG</span></div>
+            <button class="config-btn" onclick="logout()">EXIT</button>
+        </nav>
+
+        <div class="order-card" style="margin-bottom: 20px;">
+            <div class="order-header" style="margin-bottom:10px">DEVICE IDENTITY</div>
+            <div class="input-group">
+                <input type="number" value="1">
+                <label>Zone ID</label>
+            </div>
+            <div class="input-group">
+                <select>
+                    <option>Tugger</option>
+                    <option>Collector</option>
+                </select>
+                <label style="top:-15px; font-size:0.75rem">Mode</label>
+            </div>
+        </div>
+
+        <div class="order-card">
+            <div class="order-header" style="margin-bottom:10px">BUTTON MAP</div>
+            <div class="input-group">
+                <input type="text" value="Line 109">
+                <label>Btn 1 Label</label>
+            </div>
+        </div>
+
+        <button class="btn-main" style="margin-top:20px" onclick="saveConfig()">UPLOAD TO DEVICE</button>
+    </div>
+
+    <script>
+        // MOCK LOGIC
+        function openLogin() {
+            document.getElementById('modal-login').classList.add('active');
+            document.getElementById('passcode').focus();
+        }
+
+        function closeLogin() {
+            document.getElementById('modal-login').classList.remove('active');
+        }
+
+        function attemptLogin() {
+            const btn = document.querySelector('#modal-login .btn-main');
+            btn.innerHTML = "VERIFYING...";
+
+            setTimeout(() => {
+                closeLogin();
+                document.getElementById('view-monitor').style.display = 'none';
+                document.getElementById('view-config').style.display = 'block';
+                btn.innerHTML = "AUTHENTICATE";
+            }, 800);
+        }
+
+        function logout() {
+            document.getElementById('view-monitor').style.display = 'block';
+            document.getElementById('view-config').style.display = 'none';
+        }
+
+        function saveConfig() {
+            const btn = document.querySelector('#view-config .btn-main');
+            const original = btn.innerHTML;
+            btn.innerHTML = "SYNCING...";
+            btn.style.background = "#00f0ff";
+            setTimeout(() => {
+                btn.innerHTML = "SAVED";
+                btn.style.background = "#00ff9d";
+                setTimeout(() => {
+                    btn.innerHTML = original;
+                    btn.style.background = "white";
+                }, 1500);
+            }, 1000);
+        }
+
+        // --- TUGGY COMPANION LOGIC ---
+        const tuggyFrames = {
+            happy: [
+                '000011110000', '000111111000', '001100001100', '011011011010', '011010010010', '111111111111', 
+                '101100001101', '101011110101', '101000000101', '001111111100', '001100001100', '011110011110'
+            ],
+            neutral: [
+                '000011110000', '000111111000', '001100001100', '011011011010', '011011011010', '111111111111',
+                '101100001101', '101000000101', '101011110101', '001111111100', '001100001100', '011110011110'
+            ],
+            sick: [
+                '000011110000', '000111111000', '001100001100', '011010010010', '011001100110', '111111111111',
+                '101100001101', '101011110101', '101010010101', '001111111100', '001100001100', '011110011110'
+            ]
+        };
+
+        let currentMood = 'happy';
+
+        function renderTuggy(mood) {
+            const svg = document.getElementById('tuggy-svg');
+            const textObj = document.getElementById('tuggy-status-text');
+            if (!svg || !textObj) return;
+            
+            svg.innerHTML = '';
+            const frame = tuggyFrames[mood];
+            
+            let fill = 'var(--neon-accent)'; 
+            let glow = 'var(--neon-glow)';
+            if (mood === 'neutral') { fill = '#ffaa00'; glow = 'rgba(255, 170, 0, 0.2)'; }
+            if (mood === 'sick') { fill = 'var(--neon-alert)'; glow = 'rgba(255, 0, 85, 0.4)'; }
+
+            svg.style.filter = `drop-shadow(0 0 8px ${glow})`;
+            textObj.innerHTML = `Mood:<br/><span style="color:${fill}">${mood}</span>`;
+
+            for(let y=0; y<12; y++){
+                for(let x=0; x<12; x++){
+                    if(frame[y][x] === '1') {
+                        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                        rect.setAttribute('x', x);
+                        rect.setAttribute('y', y);
+                        rect.setAttribute('width', 1);
+                        rect.setAttribute('height', 1);
+                        rect.setAttribute('fill', fill);
+                        svg.appendChild(rect);
+                    }
+                }
+            }
+        }
+
+        // Mock Evaluator: Check visual classes in the DOM
+        function evaluateTuggyMood() {
+            const cards = document.querySelectorAll('.order-card');
+            let hasTimeout = false;
+            let hasWarning = false;
+
+            cards.forEach(c => {
+                // In demo, we just look for specific classes or hardcoded timers
+                // Priority class is used for pending. Let's spoof based on timers.
+                const timerSpan = c.querySelector('.timer');
+                if (timerSpan) {
+                    const time = timerSpan.innerText;
+                    // Mock logic: 04:12 = timeout, 01:05 = warning (not actually parsable easily without splitting, but let's just use existing classes or mock a cycle)
+                }
+            });
+
+            // For the sake of the static preview, let's just cycle the mood every 5 seconds to demonstrate!
+            const moods = ['happy', 'neutral', 'sick'];
+            let idx = moods.indexOf(currentMood);
+            idx = (idx + 1) % moods.length;
+            currentMood = moods[idx];
+            renderTuggy(currentMood);
+        }
+
+        // Init
+        renderTuggy('happy');
+        setInterval(evaluateTuggyMood, 5000); // cycle for preview
+    </script>
+</body>
+
+</html>
