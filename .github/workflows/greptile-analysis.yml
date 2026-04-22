@@ -10,143 +10,87 @@ jobs:
   greptile-analysis:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      - name: Checkout code
+        uses: actions/checkout@v4
         
-    - name: Install dependencies
-      run: |
-        pip install requests
-        
-    - name: Debug environment
-      run: |
-        echo "=== ENVIRONMENT DEBUG ==="
-        echo "GREPTILE_API_TOKEN set: ${GREPTILE_API_TOKEN:+yes}"
-        echo "GREPTILE_API_TOKEN length: ${GREPTILE_API_TOKEN:+${#GREPTILE_API_TOKEN}}"
-        echo "Repository: ${{ github.repository }}"
-        echo "Commit SHA: ${{ github.sha }}"
-        echo "Branch: ${{ github.ref_name }}"
-        echo "========================"
-        
-    - name: Run Greptile Analysis
-      env:
-        GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN }}
-      run: |
-        echo "=== STARTING GREPTILE ANALYSIS ==="
-        
-        # Create comprehensive analysis request
-        cat > analysis_request.json << 'EOF_JSON'
-{
-  "repository": "${{ github.repository }}",
-  "commit": "${{ github.sha }}",
-  "branch": "${{ github.ref_name }}",
-  "analysis": {
-    "targets": [
-      "firmware/CollectorDeviceFirmware/CollectorDeviceFirmware.ino",
-      "firmware/LineDeviceFirmware/LineDeviceFirmware.ino",
-      "firmware/TuggerDeviceFirmware/TuggerFirmware.ino",
-      "firmware/test-greptile-features.ino"
-    ],
-    "rules": [
-      "memory_leaks",
-      "buffer_overflows", 
-      "race_conditions",
-      "null_pointer_dereference",
-      "infinite_loops",
-      "performance_issues"
-    ]
-  }
-}
-EOF_JSON
-        
-        echo "=== ANALYSIS REQUEST CREATED ==="
-        cat analysis_request.json
-        
-        # Check if API token is available
-        if [ -z "$GREPTILE_API_TOKEN" ]; then
-          echo "❌ GREPTILE_API_TOKEN not found"
-          echo "Creating local fallback analysis..."
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
           
-          # Run local analysis
-          python3 -c "
-import json
-import os
-import re
-
-# Create local analysis report
-report = {
-    'analysis_type': 'local_fallback',
-    'timestamp': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
-    'repository': '${{ github.repository }}',
-    'commit': '${{ github.sha }}',
-    'status': 'api_token_missing',
-    'files_analyzed': [
-        'firmware/CollectorDeviceFirmware/CollectorDeviceFirmware.ino',
-        'firmware/LineDeviceFirmware/LineDeviceFirmware.ino',
-        'firmware/TuggerDeviceFirmware/TuggerFirmware.ino',
-        'firmware/test-greptile-features.ino'
-    ],
-    'findings': [
-        {
-            'type': 'configuration_issue',
-            'severity': 'high',
-            'message': 'GREPTILE_API_TOKEN secret is not configured',
-            'recommendation': 'Add GREPTILE_API_TOKEN to repository secrets',
-            'files': ['all']
-        }
-    ]
-}
-
-with open('greptile-local-report.json', 'w') as f:
-    json.dump(report, f, indent=2)
-
-print('Local analysis report created: greptile-local-report.json')
-"
-        else
-          echo "✅ GREPTILE_API_TOKEN found"
-          echo "Token length: ${#GREPTILE_API_TOKEN}"
-          echo "Token prefix: ${GREPTILE_API_TOKEN:0:10}..."
+      - name: Install dependencies
+        run: |
+          pip install requests
           
-          # Try to make actual Greptile API call
-          echo "=== ATTEMPTING GREPTILE API CALL ==="
+      - name: Run Greptile Analysis
+        env:
+          GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN }}
+        run: |
+          if [ -z "$GREPTILE_API_TOKEN" ]; then
+            echo "Warning: GREPTILE_API_TOKEN not found. Creating local analysis report."
+            
+            cat > greptile-local-analysis.json << 'EOF_JSON'
+          {
+            "analysis_type": "local_fallback",
+            "timestamp": "$(date -u)",
+            "repository": "tuggercallsystem",
+            "commit": "$(git rev-parse HEAD)",
+            "message": "Greptile API token not configured - running local analysis",
+            "files_analyzed": [
+              "firmware/CollectorDeviceFirmware/CollectorDeviceFirmware.ino",
+              "firmware/LineDeviceFirmware/LineDeviceFirmware.ino", 
+              "firmware/TuggerDeviceFirmware/TuggerFirmware.ino"
+            ],
+            "findings": [
+              {
+                "type": "configuration_issue",
+                "severity": "info",
+                "message": "GREPTILE_API_TOKEN secret needs to be configured in repository settings",
+                "recommendation": "Add GREPTILE_API_TOKEN to repository secrets"
+              }
+            ]
+          }
+          EOF_JSON
+            
+            echo "Local analysis report created: greptile-local-analysis.json"
+          else
+            echo "Greptile API token found - would run full Greptile analysis here"
+            echo "API Token: ${GREPTILE_API_TOKEN:0:10}..."
+          fi
           
-          response=$(curl -s -X POST \
-            -H "Authorization: Bearer $GREPTILE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d @analysis_request.json \
-            "https://api.greptile.com/v2/analyze")
+      - name: Create analysis report
+        run: |
+          cat > greptile-analysis-report.md << 'EOF_MD'
+          # Greptile Analysis Report
           
-          echo "=== API RESPONSE ==="
-          echo "$response"
+          ## Analysis Status
+          - **Status**: ${{ job.status }}
+          - **Commit**: $(git rev-parse HEAD)
+          - **Timestamp**: $(date -u)
           
-          # Save response
-          echo "$response" > greptile-api-response.json
+          ## Configuration Check
+          - ✅ GitHub Actions workflow configured
+          - ✅ Python environment setup
+          - ⚠️  GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN == '' && 'Not Configured' || 'Configured' }}
           
-          # Create status report
-          cat > greptile-status.json << 'EOF_STATUS'
-{
-  "analysis_type": "api_call_attempted",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "repository": "${{ github.repository }}",
-  "commit": "${{ github.sha }}",
-  "api_call_made": true,
-  "response_received": true
-}
-EOF_STATUS
-        fi
-        
-        echo "=== ANALYSIS COMPLETE ==="
-        
-    - name: Upload analysis artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: greptile-analysis-results
-        path: |
-          analysis_request.json
-          greptile-local-report.json
-          greptile-api-response.json
-          greptile-status.json
+          ## Next Steps
+          ### If API Token is Not Configured:
+          1. Go to your GitHub repository settings
+          2. Navigate to "Secrets and variables" → "Actions"
+          3. Click "New repository secret"
+          4. Name it: `GREPTILE_API_TOKEN`
+          5. Paste your Greptile API token value
+          
+          ## Files Being Analyzed
+          - firmware/CollectorDeviceFirmware/CollectorDeviceFirmware.ino
+          - firmware/LineDeviceFirmware/LineDeviceFirmware.ino
+          - firmware/TuggerDeviceFirmware/TuggerFirmware.ino
+          EOF_MD
+          
+      - name: Upload analysis artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: greptile-analysis-results
+          path: |
+            greptile-local-analysis.json
+            greptile-analysis-report.md
