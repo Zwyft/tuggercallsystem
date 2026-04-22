@@ -1,0 +1,53 @@
+{
+  "version": "1.0.0",
+  "repository": {
+    "name": "tuggercallsystem",
+    "description": "Tugger Call System with Heltec Vision Master E290 optimization"
+  },
+  "analysis": {
+    "enabled": true,
+    "targets": [
+      "firmware/**/*.ino",
+      "firmware/**/*.cpp",
+      "firmware/**/*.h"
+    ],
+    "exclude": [
+      "**/node_modules/**",
+      "**/build/**",
+      "**/target/**",
+      "**/.git/**"
+    ]
+  },
+  "rules": {
+    "memory_leaks": {
+      "enabled": true,
+      "severity": "high"
+    },
+    "buffer_overflows": {
+      "enabled": true,
+      "severity": "high"
+    },
+    "race_conditions": {
+      "enabled": true,
+      "severity": "medium"
+    },
+    "null_pointer_dereference": {
+      "enabled": true,
+      "severity": "high"
+    },
+    "infinite_loops": {
+      "enabled": true,
+      "severity": "medium"
+    }
+  },
+  "triggers": {
+    "on_commit": true,
+    "on_pull_request": true,
+    "on_push": true
+  },
+  "reporting": {
+    "format": "markdown",
+    "include_recommendations": true,
+    "include_code_examples": true
+  }
+}
