@@ -61,7 +61,6 @@ jobs:
           
       - name: Create analysis report
         run: |
-          # The Markdown below is now correctly indented
           cat > greptile-analysis-report.md << 'EOF_MD'
           # Greptile Analysis Report
 
