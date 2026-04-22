@@ -24,7 +24,7 @@ jobs:
         
     - name: Run Greptile Analysis
       env:
-        GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN }}
+        - GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN == '' && 'Not Configured' || 'Configured' }}
       run: |
         # Check if Greptile token is available
         if [ -z "$GREPTILE_API_TOKEN" ]; then
