@@ -43,11 +43,23 @@ REVIEW_PROMPT = (
 
 
 def main():
-    token      = os.environ["GREPTILE_API_TOKEN"]
-    gh_token   = os.environ["GITHUB_TOKEN"]
+    token      = os.environ.get("GREPTILE_API_TOKEN", "").strip()
+    gh_token   = os.environ.get("GITHUB_TOKEN", "")
     branch     = os.environ.get("GREPTILE_BRANCH", "dev-optimized-eink")
     commit_sha = os.environ.get("COMMIT_SHA", "unknown")[:8]
     env_file   = os.environ.get("GITHUB_ENV", "")
+
+    if not token:
+        _write_error(
+            "GREPTILE_API_TOKEN secret is not configured.\n\n"
+            "To enable Greptile firmware reviews:\n"
+            "1. Go to **Settings → Secrets and variables → Actions**\n"
+            "2. Click **New repository secret**\n"
+            "3. Name: `GREPTILE_API_TOKEN`\n"
+            "4. Value: your Greptile API token from greptile.com\n"
+        )
+        _setenv(env_file, "REVIEW_SUCCESS", "false")
+        return
 
     headers = {
         "Authorization": f"Bearer {token}",

@@ -2,9 +2,11 @@ name: Greptile Firmware Review
 
 on:
   push:
-    branches: [main, dev, dev-optimized-eink]
+    branches: [main, dev, dev-optimized-eink, 'claude/**']
     paths:
       - 'firmware/**'
+      - '.github/workflows/greptile-analysis.yml'
+      - '.github/scripts/**'
   pull_request:
     branches: [main, dev, dev-optimized-eink]
     paths:

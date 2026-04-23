@@ -21,11 +21,24 @@ POLL_WAIT = 15
 
 
 def main():
-    token    = os.environ["GREPTILE_API_TOKEN"]
-    gh_token = os.environ["GITHUB_TOKEN"]
+    token    = os.environ.get("GREPTILE_API_TOKEN", "").strip()
+    gh_token = os.environ.get("GITHUB_TOKEN", "")
     event    = os.environ.get("EVENT_NAME", "push")
     head_ref = os.environ.get("HEAD_REF", "")
     ref_name = os.environ.get("REF_NAME", "")
+
+    if not token:
+        print("[greptile] GREPTILE_API_TOKEN is not set — skipping indexing.")
+        print("[greptile] Add the secret to Settings → Secrets and variables → Actions.")
+        env_file = os.environ.get("GITHUB_ENV", "")
+        branch = head_ref if (event == "pull_request" and head_ref) else ref_name
+        if not branch:
+            branch = "dev-optimized-eink"
+        if env_file:
+            with open(env_file, "a") as f:
+                f.write(f"GREPTILE_BRANCH={branch}\n")
+                f.write("GREPTILE_TOKEN_MISSING=true\n")
+        return
 
     branch = head_ref if (event == "pull_request" and head_ref) else ref_name
     if not branch:
