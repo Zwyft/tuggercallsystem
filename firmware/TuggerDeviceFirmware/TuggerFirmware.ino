@@ -91,15 +91,12 @@ MeshPacket txQueue[TX_QUEUE_SIZE];
 int txQHead = 0, txQTail = 0, txQCount = 0;
 
 void txEnqueue(void* p) {
-   
     if (txQCount >= TX_QUEUE_SIZE) {
         Serial.println("[TX] Queue full - dropping oldest packet");
-        // Overwrite oldest (head) to keep newest data flowing
-        txQueue[txQHead] = *reinterpret_cast<MeshPacket*>(p);
-        txQHead = (txQHead + 1) % TX_QUEUE_SIZE;
-        // Tail stays where it is; count remains at max
-        return;
-    } // Drop if full
+        txQHead = (txQHead + 1) % TX_QUEUE_SIZE; // evict oldest
+        txQCount--;
+        // fall through to enqueue newest at tail
+    }
     txQueue[txQTail] = *reinterpret_cast<MeshPacket*>(p);
     txQTail = (txQTail + 1) % TX_QUEUE_SIZE;
     txQCount++;
@@ -153,12 +150,6 @@ uint32_t getCurrentEpoch() {
 }
 
 
-// Consolidated dual-zone logic
-bool isMyZone(uint8_t route) {
-  if (dualZone) return (route == zoneA) || (route == zoneB);
-  return route == zoneA;
-}
-
 String epochToHHMM(uint32_t epoch) {
     if (epoch == 0) return "--:--";
     uint32_t t = epoch % 86400UL;
@@ -170,6 +161,8 @@ String epochToHHMM(uint32_t epoch) {
 // HARDWARE
 // ============================================================
 
+void updateDisplay(); // defined in DISPLAY section below
+
 // Heltec Vision Master E290 e-ink display optimizations
 void initDisplay() {
     // Optimize for Heltec Vision Master E290 specific characteristics
@@ -180,26 +173,8 @@ void initDisplay() {
     display.setPoffWaitTime(100); // Power off wait time
 }
 
-// Smart display update with content-aware refresh
 void smartUpdateDisplay(bool forceFull = false) {
-    static uint32_t lastUpdateTime = 0;
-    static uint8_t lastContentHash = 0;
-    
-    // Calculate content hash to detect significant changes
-    uint8_t currentHash = 0;
-    for (int i = 0; i < MAX_ACTIVE_CALLS; i++) {
-        if (activeCalls[i].valid) currentHash ^= (i + activeCalls[i].priority);
-    }
-    
-    // Use full refresh for major changes, partial for minor updates
-    if (forceFull || currentHash != lastContentHash || (millis() - lastUpdateTime) > 30000) {
-        display.fullRefresh();
-        lastContentHash = currentHash;
-        lastUpdateTime = millis();
-    } else {
-        display.partialRefresh();
-        lastUpdateTime = millis();
-    }
+    updateDisplay(); // draws content then applies content-aware refresh
 }
 
 DEPG0290BNS800 display;
@@ -616,7 +591,7 @@ void updateDisplay() {
                 }
                 display.print(String(activeCalls[i].item));
                 display.setCursor(200, y);
-                display.print(epochToHHMM(getCurrentEpoch()));
+                display.print(activeCalls[i].timeOrdered);
                 y += 13;
             }
         }
@@ -876,13 +851,13 @@ void loop() {
                             // Record in cleared cache so catchup can't revive it
                             recordClearedCall(activeCalls[i].item, activeCalls[i].zone);
                             activeCalls[i].valid = false;
-                    smartUpdateDisplay(); // Instant update when order claimed changed = true;
+                            changed = true;
                         }
                     }
                     if (changed) {
                         recountActiveCalls();
-                    smartUpdateDisplay(); // Instant update when orders cleared
-                        saveOrdersToNVS(); smartUpdateDisplay();
+                        saveOrdersToNVS();
+                        smartUpdateDisplay();
                     }
                 }
 

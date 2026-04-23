@@ -127,6 +127,8 @@ int numHistory = 0;
 // HARDWARE
 // ============================================================
 
+void updateDisplay(); // defined in DISPLAY section below
+
 // Heltec Vision Master E290 e-ink display optimizations
 void initDisplay() {
     // Optimize for Heltec Vision Master E290 specific characteristics
@@ -137,28 +139,8 @@ void initDisplay() {
     display.setPoffWaitTime(100); // Power off wait time
 }
 
-// Smart display update with content-aware refresh
 void smartUpdateDisplay(bool forceFull = false) {
-    static uint32_t lastUpdateTime = 0;
-    static uint8_t lastContentHash = 0;
-    
-    // Calculate content hash to detect significant changes
-    uint8_t currentHash = 0;
-    for (int i = 0; i < numActiveOrders; i++) {
-        if (!activeOrders[i].claimed && !activeOrders[i].timedOut) {
-            currentHash ^= (i + activeOrders[i].priority);
-        }
-    }
-    
-    // Use full refresh for major changes, partial for minor updates
-    if (forceFull || currentHash != lastContentHash || (millis() - lastUpdateTime) > 30000) {
-        display.fullRefresh();
-        lastContentHash = currentHash;
-        lastUpdateTime = millis();
-    } else {
-        display.partialRefresh();
-        lastUpdateTime = millis();
-    }
+    updateDisplay(); // draws content then applies content-aware refresh
 }
 
 DEPG0290BNS800 display;
@@ -192,10 +174,8 @@ void smartUpdateDisplay();
 // TIME HELPERS
 // ============================================================
 
-// Consolidated dual-zone logic
 bool isMyZone(uint8_t route) {
-  if (dualZone) return (route == zoneA) || (route == zoneB);
-  return route == zoneA;
+    return true; // Collector is the hub — it stores orders for all zones
 }
 
 String epochToHHMM(uint32_t epoch) {
@@ -370,11 +350,9 @@ void txEnqueue(void* p) {
    
     if (txQCount >= TX_QUEUE_SIZE) {
         Serial.println("[TX] Queue full - dropping oldest packet");
-        // Overwrite oldest (head) to keep newest data flowing
-        txQueue[txQHead] = *reinterpret_cast<MeshPacket*>(p);
-        txQHead = (txQHead + 1) % TX_QUEUE_SIZE;
-        // Tail stays where it is; count remains at max
-        return;
+        txQHead = (txQHead + 1) % TX_QUEUE_SIZE; // evict oldest
+        txQCount--;
+        // fall through to enqueue newest at tail
     }
     txQueue[txQTail] = *reinterpret_cast<MeshPacket*>(p);
     txQTail = (txQTail + 1) % TX_QUEUE_SIZE;
@@ -456,6 +434,17 @@ void broadcastCatchup() {
         delay(random(60, 120)); // Inter-packet spacing
     }
     Serial.printf("[CATCHUP] Sent %d orders\n", sent);
+}
+
+// Numeric overload — used for configKey 2 (zone), 4-8 (pins), 9-10 (OTA flags).
+// Line device reads configVal for these keys; configStr stays zeroed.
+void sendConfigPacket(uint8_t zone, uint8_t key, uint8_t val) {
+    MeshPacket pkt; memset(&pkt, 0, sizeof(pkt));
+    pkt.srcID = myDeviceID; pkt.seqNum = nextSeq();
+    pkt.type = PKT_CONFIG; pkt.route = zone;
+    pkt.ttl = getSmartTTL(); pkt.configKey = key;
+    pkt.configVal = val;
+    transmitMesh(&pkt);
 }
 
 void sendConfigPacket(uint8_t zone, uint8_t key, const String& val) {
@@ -556,7 +545,7 @@ void updateDisplay() {
                 display.setCursor(120, y);
                 display.print(String(activeOrders[i].lineID));
                 display.setCursor(200, y);
-                display.print(epochToHHMM(getCurrentEpoch()));
+                display.print(activeOrders[i].timeOrdered);
                 y += 13;
             }
         }
@@ -1192,7 +1181,7 @@ void loop() {
             unsigned long elapsed = millis() - activeOrders[i].timestamp;
             if (elapsed > 45UL * 60 * 1000) {
                 activeOrders[i].timedOut = true;
-                    smartUpdateDisplay(); // Instant update when order times out changed = true;
+                changed = true;
                 Serial.printf("[TIMEOUT] %s|%s Z%d ordered=%s\n",
                     activeOrders[i].lineID, activeOrders[i].part,
                     activeOrders[i].zone, activeOrders[i].timeOrdered);

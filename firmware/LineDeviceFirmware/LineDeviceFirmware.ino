@@ -141,10 +141,9 @@ uint32_t getCurrentEpoch() {
 }
 
 
-// Consolidated dual-zone logic
 bool isMyZone(uint8_t route) {
-  if (dualZone) return (route == zoneA) || (route == zoneB);
-  return route == zoneA;
+    if (route == 0) return true; // zone 0 = all-call / supervisor
+    return route == myZone;
 }
 
 String epochToHHMM(uint32_t epoch) {
@@ -159,6 +158,8 @@ String epochToHHMM(uint32_t epoch) {
 // HARDWARE
 // ============================================================
 
+void updateDisplay(); // defined in DISPLAY section below
+
 // Heltec Vision Master E290 e-ink display optimizations
 void initDisplay() {
     // Optimize for Heltec Vision Master E290 specific characteristics
@@ -169,26 +170,8 @@ void initDisplay() {
     display.setPoffWaitTime(100); // Power off wait time
 }
 
-// Smart display update with content-aware refresh
 void smartUpdateDisplay(bool forceFull = false) {
-    static uint32_t lastUpdateTime = 0;
-    static uint8_t lastContentHash = 0;
-    
-    // Calculate content hash to detect significant changes
-    uint8_t currentHash = 0;
-    for (int i = 0; i < numCallTypes; i++) {
-        if (callTypes[i].active) currentHash ^= (i + callTypes[i].priority);
-    }
-    
-    // Use full refresh for major changes, partial for minor updates
-    if (forceFull || currentHash != lastContentHash || (millis() - lastUpdateTime) > 30000) {
-        display.fullRefresh();
-        lastContentHash = currentHash;
-        lastUpdateTime = millis();
-    } else {
-        display.partialRefresh();
-        lastUpdateTime = millis();
-    }
+    updateDisplay(); // draws content then applies content-aware refresh
 }
 
 DEPG0290BNS800 display;
@@ -216,8 +199,7 @@ String wifiPass       = "";
 
 CallType callTypes[MAX_CALL_TYPES];
 int  numCallTypes  = 0;
-int  selectedCall  = -1;   // Ensure invalid index on boot
-int  selectedCall  = 0;
+int  selectedCall  = -1;
 bool menuActive    = false;
 bool anyCallActive = false;
 
@@ -594,14 +576,11 @@ int txQHead = 0, txQTail = 0, txQCount = 0;
 unsigned long lastTX = 0;
 
 void txEnqueue(void* p) {
-   
     if (txQCount >= TX_QUEUE_SIZE) {
         Serial.println("[TX] Queue full - dropping oldest packet");
-        // Overwrite oldest (head) to keep newest data flowing
-        txQueue[txQHead] = *reinterpret_cast<MeshPacket*>(p);
-        txQHead = (txQHead + 1) % TX_QUEUE_SIZE;
-        // Tail stays where it is; count remains at max
-        return;
+        txQHead = (txQHead + 1) % TX_QUEUE_SIZE; // evict oldest
+        txQCount--;
+        // fall through to enqueue newest at tail
     }
     txQueue[txQTail] = *reinterpret_cast<MeshPacket*>(p);
     txQTail = (txQTail + 1) % TX_QUEUE_SIZE;
@@ -663,12 +642,11 @@ void sendCallPacket(int callIndex) {
     String desc  = LINE_ID + "|" + String(callTypes[callIndex].label);
     desc.toCharArray(pkt.item, sizeof(pkt.item));
     isDuplicate(myDeviceID, pkt.seqNum); // prevent self-echo
-    transmitMesh(&pkt); // transmitMesh calls radio.startReceive() internally
     callTypes[callIndex].active = true;
     anyCallActive = true;
     saveActiveOrders();
-    smartUpdateDisplay(); // Instant visual feedback
-    transmitMesh(&pkt); // Send to network after displaying
+    smartUpdateDisplay();
+    transmitMesh(&pkt);
     if (PIN_LED >= 0) digitalWrite(PIN_LED, HIGH);
     if (PIN_BUZZER >= 0) { digitalWrite(PIN_BUZZER, HIGH); delay(200); digitalWrite(PIN_BUZZER, LOW); }
 }
@@ -1038,8 +1016,8 @@ void loop() {
                         if (!anyCallActive && PIN_LED >= 0) digitalWrite(PIN_LED, LOW);
                         if (PIN_BUZZER >= 0) { digitalWrite(PIN_BUZZER, HIGH); delay(100); digitalWrite(PIN_BUZZER, LOW); }
                         saveActiveOrders();
-    smartUpdateDisplay(); // Instant visual feedback
-    transmitMesh(&pkt); // Send to network after displaying menuActive = false; smartUpdateDisplay();
+                        menuActive = false;
+                        smartUpdateDisplay();
                     }
                 }
 
@@ -1071,9 +1049,10 @@ void loop() {
                             }
                         }
                     }
-                    if (anyNew) { saveActiveOrders();
-    smartUpdateDisplay(); // Instant visual feedback
-    transmitMesh(&pkt); // Send to network after displaying smartUpdateDisplay(); }
+                    if (anyNew) {
+                        saveActiveOrders();
+                        smartUpdateDisplay();
+                    }
                 }
 
                 if (pkt->type == PKT_CONFIG && (pkt->route == myZone || pkt->route == 0))
