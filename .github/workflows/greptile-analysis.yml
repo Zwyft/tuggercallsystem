@@ -1,96 +1,283 @@
-name: Greptile Code Analysis
+name: Greptile Firmware Review
 
 on:
   push:
-    branches: [ main, dev, dev-optimized-eink ]
+    branches: [main, dev, dev-optimized-eink]
+    paths:
+      - 'firmware/**'
   pull_request:
-    branches: [ main ]
+    branches: [main, dev, dev-optimized-eink]
+    paths:
+      - 'firmware/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  greptile-analysis:
+  greptile-review:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-        
+        with:
+          fetch-depth: 0
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          
+
       - name: Install dependencies
-        run: |
-          pip install requests
-          
-      - name: Run Greptile Analysis
+        run: pip install requests
+
+      # ------------------------------------------------------------------ #
+      # STEP 1 — Index the repository so Greptile has the latest code       #
+      # ------------------------------------------------------------------ #
+      - name: Index repository
         env:
           GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -z "$GREPTILE_API_TOKEN" ]; then
-            echo "Warning: GREPTILE_API_TOKEN not found. Creating local analysis report."
-            
-            cat > greptile-local-analysis.json << 'EOF_JSON'
-          {
-            "analysis_type": "local_fallback",
-            "timestamp": "$(date -u)",
-            "repository": "tuggercallsystem",
-            "commit": "$(git rev-parse HEAD)",
-            "message": "Greptile API token not configured - running local analysis",
-            "files_analyzed": [
-              "firmware/CollectorDeviceFirmware/CollectorDeviceFirmware.ino",
-              "firmware/LineDeviceFirmware/LineDeviceFirmware.ino", 
-              "firmware/TuggerDeviceFirmware/TuggerFirmware.ino"
-            ],
-            "findings": [
-              {
-                "type": "configuration_issue",
-                "severity": "info",
-                "message": "GREPTILE_API_TOKEN secret needs to be configured in repository settings",
-                "recommendation": "Add GREPTILE_API_TOKEN to repository secrets"
-              }
-            ]
+          python3 - <<'PYEOF'
+          import os, sys, time, requests, urllib.parse
+
+          token     = os.environ["GREPTILE_API_TOKEN"]
+          gh_token  = os.environ["GITHUB_TOKEN"]
+          event     = os.environ["EVENT_NAME"]
+          branch    = os.environ["HEAD_REF"] if event == "pull_request" else os.environ["REF_NAME"]
+
+          if not branch:
+              branch = "dev-optimized-eink"
+
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "X-Github-Token": gh_token,
+              "Content-Type": "application/json",
           }
-          EOF_JSON
-            
-            echo "Local analysis report created: greptile-local-analysis.json"
-          else
-            echo "Greptile API token found - would run full Greptile analysis here"
-            echo "API Token: ${GREPTILE_API_TOKEN:0:10}..."
-          fi
-          
-      - name: Create analysis report
+
+          print(f"[greptile] Indexing branch: {branch}")
+
+          # Always reload on push so new commits are included.
+          # On PRs we skip reload (base is usually already indexed).
+          reload = (event != "pull_request")
+
+          resp = requests.post(
+              "https://api.greptile.com/v2/repositories",
+              headers=headers,
+              json={
+                  "remote":     "github",
+                  "repository": "Zwyft/tuggercallsystem",
+                  "branch":     branch,
+                  "reload":     reload,
+                  "notify":     False,
+              },
+              timeout=30,
+          )
+          print(f"[greptile] Index response: {resp.status_code} — {resp.text[:300]}")
+
+          # Write branch to env so later steps can read it
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"GREPTILE_BRANCH={branch}\n")
+
+          # Poll until ready (max 4 minutes)
+          repo_id      = urllib.parse.quote(f"github:Zwyft/tuggercallsystem@{branch}", safe="")
+          status_url   = f"https://api.greptile.com/v2/repositories/{repo_id}"
+          READY        = {"ready", "completed", "indexed"}
+          FAIL         = {"failed", "error"}
+          max_attempts = 16   # 16 × 15 s = 4 min
+
+          for attempt in range(1, max_attempts + 1):
+              time.sleep(15)
+              s = requests.get(status_url, headers=headers, timeout=15)
+              if s.status_code == 200:
+                  status = s.json().get("status", "unknown")
+                  print(f"[greptile] Poll {attempt}/{max_attempts}: status={status}")
+                  if status in READY:
+                      print("[greptile] Repository ready.")
+                      break
+                  if status in FAIL:
+                      print(f"[greptile] Indexing failed — will attempt query anyway.")
+                      break
+              else:
+                  print(f"[greptile] Poll {attempt}/{max_attempts}: HTTP {s.status_code}")
+          else:
+              print("[greptile] Polling timed out — attempting query with cached index.")
+          PYEOF
+
+      # ------------------------------------------------------------------ #
+      # STEP 2 — Query Greptile for a structured code review                #
+      # ------------------------------------------------------------------ #
+      - name: Run code review query
+        id: review
+        env:
+          GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          cat > greptile-analysis-report.md << 'EOF_MD'
-          # Greptile Analysis Report
-          
-          ## Analysis Status
-          - **Status**: ${{ job.status }}
-          - **Commit**: $(git rev-parse HEAD)
-          - **Timestamp**: $(date -u)
-          
-          ## Configuration Check
-          - ✅ GitHub Actions workflow configured
-          - ✅ Python environment setup
-          - ⚠️  GREPTILE_API_TOKEN: ${{ secrets.GREPTILE_API_TOKEN == '' && 'Not Configured' || 'Configured' }}
-          
-          ## Next Steps
-          ### If API Token is Not Configured:
-          1. Go to your GitHub repository settings
-          2. Navigate to "Secrets and variables" → "Actions"
-          3. Click "New repository secret"
-          4. Name it: `GREPTILE_API_TOKEN`
-          5. Paste your Greptile API token value
-          
-          ## Files Being Analyzed
-          - firmware/CollectorDeviceFirmware/CollectorDeviceFirmware.ino
-          - firmware/LineDeviceFirmware/LineDeviceFirmware.ino
-          - firmware/TuggerDeviceFirmware/TuggerFirmware.ino
-          EOF_MD
-          
-      - name: Upload analysis artifacts
+          python3 - <<'PYEOF'
+          import os, sys, uuid, requests, json
+
+          token      = os.environ["GREPTILE_API_TOKEN"]
+          gh_token   = os.environ["GITHUB_TOKEN"]
+          branch     = os.environ.get("GREPTILE_BRANCH", "dev-optimized-eink")
+          commit_sha = os.environ["COMMIT_SHA"][:8]
+
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "X-Github-Token": gh_token,
+              "Content-Type": "application/json",
+          }
+
+          prompt = """\
+  You are an expert embedded systems engineer reviewing Arduino/ESP32 firmware.
+  Please perform a comprehensive code review of the three firmware files in this repository:
+
+  - firmware/CollectorDeviceFirmware/CollectorDeviceFirmware.ino
+  - firmware/TuggerDeviceFirmware/TuggerFirmware.ino
+  - firmware/LineDeviceFirmware/LineDeviceFirmware.ino
+
+  Review each file for the following categories, referencing exact file paths and line numbers:
+
+  1. **Critical bugs** — compile errors, undefined variables, duplicate declarations, redefined functions
+  2. **Logic errors** — incorrect state transitions, broken control flow, code trapped inside comments
+  3. **Memory safety** — buffer overflows, off-by-one errors, string truncation, missing null terminators
+  4. **Concurrency / ISR safety** — `volatile` correctness, rxFlag handling, blocking calls in ISRs
+  5. **LoRa / mesh protocol** — TX queue correctness, CAD usage, dedup table logic, TTL/hop handling
+  6. **NVS / Preferences** — version checks, correct read/write pairing, data integrity across reboots
+  7. **E-ink display** — drawing vs refresh separation, refresh strategy correctness, fastmode usage
+  8. **Cross-system consistency** — packet type constants, struct layout, configVal vs configStr usage
+  9. **Dead code** — functions defined but never called
+  10. **Minor issues** — style, naming, redundant calls, misleading comments
+
+  Format your response as Markdown with this structure:
+
+  ## Executive Summary
+  (2-3 sentence overview of system health)
+
+  ## Critical Issues
+  (numbered list with file, approximate line, description, and recommended fix)
+
+  ## Major Issues
+  (numbered list with file, description, recommended fix)
+
+  ## Minor Issues & Recommendations
+  (bulleted list)
+
+  ## Overall Assessment
+  (brief conclusion and priority order for fixing)
+  """
+
+          payload = {
+              "messages": [
+                  {"id": str(uuid.uuid4()), "content": prompt, "role": "user"}
+              ],
+              "repositories": [
+                  {
+                      "remote":     "github",
+                      "repository": "Zwyft/tuggercallsystem",
+                      "branch":     branch,
+                  }
+              ],
+              "sessionId": f"firmware-review-{commit_sha}",
+              "stream":    False,
+          }
+
+          print("[greptile] Sending review query...")
+          resp = requests.post(
+              "https://api.greptile.com/v2/query",
+              headers=headers,
+              json=payload,
+              timeout=180,
+          )
+          print(f"[greptile] Query response: {resp.status_code}")
+
+          env_file = os.environ["GITHUB_ENV"]
+
+          if resp.status_code == 200:
+              data    = resp.json()
+              message = data.get("message", "_(No review content returned from Greptile)_")
+              sources = data.get("sources", [])
+
+              with open("greptile-review.md", "w") as f:
+                  f.write(f"# Greptile Firmware Code Review\n\n")
+                  f.write(f"**Branch:** `{branch}` | **Commit:** `{commit_sha}`\n\n")
+                  f.write("---\n\n")
+                  f.write(message)
+                  if sources:
+                      f.write("\n\n---\n\n## Source References\n\n")
+                      for src in sources:
+                          fp   = src.get("filepath", "?")
+                          ls   = src.get("linestart", "?")
+                          le   = src.get("lineend",   "?")
+                          f.write(f"- `{fp}` lines {ls}–{le}\n")
+
+              print("[greptile] Review written to greptile-review.md")
+              with open(env_file, "a") as f:
+                  f.write("REVIEW_SUCCESS=true\n")
+          else:
+              err = f"Greptile API error: HTTP {resp.status_code}\n\n```\n{resp.text[:1000]}\n```"
+              with open("greptile-review.md", "w") as f:
+                  f.write(f"# Greptile Code Review — Failed\n\n{err}\n")
+              print(f"[greptile] ERROR: {err}")
+              with open(env_file, "a") as f:
+                  f.write("REVIEW_SUCCESS=false\n")
+          PYEOF
+
+      # ------------------------------------------------------------------ #
+      # STEP 3a — Post as PR comment                                        #
+      # ------------------------------------------------------------------ #
+      - name: Post review as PR comment
+        if: github.event_name == 'pull_request' && env.REVIEW_SUCCESS == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs   = require('fs');
+            const raw  = fs.readFileSync('greptile-review.md', 'utf8');
+            const body = raw.length > 65000
+              ? raw.substring(0, 65000) + '\n\n_[Report truncated — download the full artifact for complete review]_'
+              : raw;
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+
+      # ------------------------------------------------------------------ #
+      # STEP 3b — Post as commit comment on push                           #
+      # ------------------------------------------------------------------ #
+      - name: Post review as commit comment
+        if: github.event_name != 'pull_request' && env.REVIEW_SUCCESS == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs   = require('fs');
+            const raw  = fs.readFileSync('greptile-review.md', 'utf8');
+            const body = raw.length > 65000
+              ? raw.substring(0, 65000) + '\n\n_[Report truncated — download the full artifact for complete review]_'
+              : raw;
+            await github.rest.repos.createCommitComment({
+              owner:      context.repo.owner,
+              repo:       context.repo.repo,
+              commit_sha: context.sha,
+              body,
+            });
+
+      # ------------------------------------------------------------------ #
+      # STEP 4 — Always upload the full report as a downloadable artifact  #
+      # ------------------------------------------------------------------ #
+      - name: Upload review artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: greptile-analysis-results
-          path: |
-            greptile-local-analysis.json
-            greptile-analysis-report.md
+          name: greptile-review-${{ github.sha }}
+          path: greptile-review.md
+          retention-days: 30
