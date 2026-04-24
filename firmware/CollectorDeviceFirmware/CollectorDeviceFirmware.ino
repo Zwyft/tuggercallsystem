@@ -1,6 +1,6 @@
 // ============================================================
 // COLLECTOR FIRMWARE — Heltec Vision Master E290
-// MMCall Mesh Network
+// MMCall Mesh Network — v1.1
 // ============================================================
 
 #include <Arduino.h>
