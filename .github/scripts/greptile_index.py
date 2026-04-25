@@ -81,10 +81,18 @@ def main():
             f.write(f"GREPTILE_BRANCH={branch}\n")
 
     # Poll until indexed (or timeout)
-    repo_id    = urllib.parse.quote(f"github:{REPO}@{branch}", safe="")
-    status_url = f"https://api.greptile.com/v2/repositories/{repo_id}"
-    READY = {"ready", "completed", "indexed"}
-    FAIL  = {"failed", "error"}
+    # Use the statusEndpoint from the index response — it has the correct format.
+    # Fallback: construct with the right scheme (remote:branch:repo, no v2 prefix).
+    try:
+        status_url = resp.json().get("statusEndpoint") or ""
+    except Exception:
+        status_url = ""
+    if not status_url:
+        repo_id    = urllib.parse.quote(f"github:{branch}:{REPO.lower()}", safe="")
+        status_url = f"https://api.greptile.com/repositories/{repo_id}"
+    print(f"[greptile] Polling: {status_url}")
+    READY = {"READY", "COMPLETED", "INDEXED", "PROCESSED"}
+    FAIL  = {"FAILED", "ERROR"}
 
     for attempt in range(1, MAX_POLLS + 1):
         time.sleep(POLL_WAIT)
@@ -95,14 +103,14 @@ def main():
             continue
 
         if s.status_code == 200:
-            status = s.json().get("status", "unknown")
+            status = s.json().get("status", "unknown").upper()
             print(f"[greptile] Poll {attempt}/{MAX_POLLS}: status={status}")
             if status in READY:
                 print("[greptile] Repository ready.")
                 return
             if status in FAIL:
-                print("[greptile] Indexing failed -- will attempt query with cached index.")
-                return
+                print("[greptile] Indexing failed.")
+                sys.exit(1)
         else:
             print(f"[greptile] Poll {attempt}/{MAX_POLLS}: HTTP {s.status_code} -- {s.text}")
 
