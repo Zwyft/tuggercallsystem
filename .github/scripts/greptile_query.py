@@ -94,7 +94,18 @@ def main():
         return
 
     print(f"[greptile] Query response: {resp.status_code}")
-    if resp.status_code != 200:
+    if resp.status_code == 404:
+        print("[greptile] 404 — repository not indexed yet.")
+        print("[greptile] The index script must complete successfully before querying.")
+        print(f"[greptile] Response body:\n{resp.text}")
+        _write_error(
+            "Repository not indexed yet (HTTP 404).\n\n"
+            "The `greptile_index.py` script must run and confirm `status=ready` "
+            "before a query is possible. Check the **Index repository** step logs."
+        )
+        _setenv(env_file, "REVIEW_SUCCESS", "false")
+        sys.exit(1)
+    elif resp.status_code != 200:
         print(f"[greptile] Response body:\n{resp.text}")
 
     if resp.status_code == 200:
