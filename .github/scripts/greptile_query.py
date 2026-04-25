@@ -83,7 +83,7 @@ def main():
     print(f"[greptile] Querying '{REPO}@{branch}'  sessionId=firmware-review-{commit_sha}")
     try:
         resp = requests.post(
-            "https://api.greptile.com/v2/query",
+            "https://api.greptile.com/query",
             headers=headers,
             json=payload,
             timeout=180,
