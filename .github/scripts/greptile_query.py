@@ -11,6 +11,7 @@ Env vars:
   GITHUB_ENV          -- path to GHA environment file
 """
 import os
+import sys
 import uuid
 import requests
 
@@ -78,7 +79,8 @@ def main():
         "stream":    False,
     }
 
-    print(f"[greptile] Querying '{REPO}@{branch}' commit={commit_sha}")
+    print(f"[greptile] Token length: {len(token)} chars")
+    print(f"[greptile] Querying '{REPO}@{branch}'  sessionId=firmware-review-{commit_sha}")
     try:
         resp = requests.post(
             "https://api.greptile.com/v2/query",
@@ -92,6 +94,8 @@ def main():
         return
 
     print(f"[greptile] Query response: {resp.status_code}")
+    if resp.status_code != 200:
+        print(f"[greptile] Response body:\n{resp.text}")
 
     if resp.status_code == 200:
         data    = resp.json()
@@ -113,8 +117,9 @@ def main():
         print("[greptile] Review written to greptile-review.md")
         _setenv(env_file, "REVIEW_SUCCESS", "true")
     else:
-        _write_error(f"HTTP {resp.status_code}\n\n```\n{resp.text[:1000]}\n```")
+        _write_error(f"HTTP {resp.status_code}\n\n```\n{resp.text}\n```")
         _setenv(env_file, "REVIEW_SUCCESS", "false")
+        sys.exit(1)
 
 
 def _write_error(msg):

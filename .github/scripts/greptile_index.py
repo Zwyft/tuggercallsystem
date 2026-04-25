@@ -11,6 +11,7 @@ Env vars (all provided by the workflow step):
   GITHUB_ENV          -- path to GHA environment file
 """
 import os
+import sys
 import time
 import urllib.parse
 import requests
@@ -53,7 +54,8 @@ def main():
     # reload=True on push so new commits are indexed.
     # reload=False on PRs — base branch is usually already indexed.
     reload_flag = (event != "pull_request")
-    print(f"[greptile] Indexing '{REPO}@{branch}' reload={reload_flag}")
+    print(f"[greptile] Token length: {len(token)} chars")
+    print(f"[greptile] Branch: '{branch}'  Repo: '{REPO}'  reload={reload_flag}")
 
     resp = requests.post(
         "https://api.greptile.com/v2/repositories",
@@ -67,7 +69,10 @@ def main():
         },
         timeout=30,
     )
-    print(f"[greptile] Index response: {resp.status_code} -- {resp.text[:300]}")
+    print(f"[greptile] Index POST {resp.status_code}:\n{resp.text}")
+    if resp.status_code not in (200, 201, 202):
+        print("[greptile] ERROR: Indexing request failed — aborting.")
+        sys.exit(1)
 
     # Propagate resolved branch to subsequent steps
     env_file = os.environ.get("GITHUB_ENV", "")
@@ -99,9 +104,10 @@ def main():
                 print("[greptile] Indexing failed -- will attempt query with cached index.")
                 return
         else:
-            print(f"[greptile] Poll {attempt}/{MAX_POLLS}: HTTP {s.status_code}")
+            print(f"[greptile] Poll {attempt}/{MAX_POLLS}: HTTP {s.status_code} -- {s.text}")
 
-    print("[greptile] Poll timeout -- attempting query with cached index.")
+    print("[greptile] Poll timeout — repository may not be ready.")
+    sys.exit(1)
 
 
 if __name__ == "__main__":
