@@ -8,7 +8,6 @@
 #include <Bounce2.h>
 #include <Preferences.h>
 #include <RadioLib.h>
-#include <SD.h>
 #include <SPI.h>
 #include <Update.h>
 #include <WiFi.h>
@@ -227,18 +226,6 @@ void smartUpdateDisplay();
 // ============================================================
 // SEQUENCE DEDUP
 // ============================================================
-
-// Added watchdog for duplicate seq table
-void pruneSeqTable() {
-  // Simple LRU removal when table is full
-  int oldest = 0;
-  unsigned long oldestTime = seqTable[0].lastSeq;
-  for (int i = 1; i < MAX_SEQ_ENTRIES; i++) {
-    if (!seqTable[i].valid) { seqTable[i].valid = true; seqTable[i].srcID = 0; break; }
-    if (seqTable[i].lastSeq < oldestTime) { oldest = i; oldestTime = seqTable[i].lastSeq; }
-  }
-  seqTable[oldest].valid = false;
-}
 
 bool isDuplicate(uint32_t srcID, uint32_t seqNum) {
     for (int i = 0; i < MAX_SEQ_ENTRIES; i++) {
@@ -587,14 +574,6 @@ void txEnqueue(void* p) {
     txQCount++;
 }
 
-
-// Non-blocking back-off implementation
-void maybeBackoff() {
-  // Random back-off between 10-50 ms without blocking the loop
-  static unsigned long backoffEnd = 0;
-  if (millis() < backoffEnd) return;
-  backoffEnd = millis() + random(10, 50);
-}
 
 void transmitMesh(void* p) {
     // Random backoff prevents collision storms in dense mesh
@@ -1044,7 +1023,6 @@ void loop() {
                                 callTypes[i].active   = true;
                                 callTypes[i].priority = pkt->priority;
                                 anyCallActive = true;
-    smartUpdateDisplay(); // Instant update when new order received
                                 anyNew = true;
                             }
                         }

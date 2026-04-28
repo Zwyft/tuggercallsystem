@@ -20,7 +20,6 @@
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <SPI.h>
-#include <SD.h>
 #include <heltec-eink-modules.h>
 
 // ============================================================
@@ -215,18 +214,6 @@ void saveOrdersToNVS();
 // ============================================================
 // SEQUENCE DEDUP
 // ============================================================
-
-// Added watchdog for duplicate seq table
-void pruneSeqTable() {
-  // Simple LRU removal when table is full
-  int oldest = 0;
-  unsigned long oldestTime = seqTable[0].lastSeq;
-  for (int i = 1; i < MAX_SEQ_ENTRIES; i++) {
-    if (!seqTable[i].valid) { seqTable[i].valid = true; seqTable[i].srcID = 0; break; }
-    if (seqTable[i].lastSeq < oldestTime) { oldest = i; oldestTime = seqTable[i].lastSeq; }
-  }
-  seqTable[oldest].valid = false;
-}
 
 bool isDuplicate(uint32_t srcID, uint32_t seqNum) {
     for (int i = 0; i < MAX_SEQ_ENTRIES; i++) {

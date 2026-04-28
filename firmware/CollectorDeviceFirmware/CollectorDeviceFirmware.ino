@@ -13,7 +13,6 @@
 #include <heltec-eink-modules.h>
 #include <ArduinoJson.h>
 #include <SPI.h>
-#include <SD.h>
 
 // ============================================================
 // RADIO CONFIG
@@ -195,18 +194,6 @@ uint32_t getCurrentEpoch() {
 // SEQUENCE DEDUP
 // ============================================================
 
-// Added watchdog for duplicate seq table
-void pruneSeqTable() {
-  // Simple LRU removal when table is full
-  int oldest = 0;
-  unsigned long oldestTime = seqTable[0].lastSeq;
-  for (int i = 1; i < MAX_SEQ_ENTRIES; i++) {
-    if (!seqTable[i].valid) { seqTable[i].valid = true; seqTable[i].srcID = 0; break; }
-    if (seqTable[i].lastSeq < oldestTime) { oldest = i; oldestTime = seqTable[i].lastSeq; }
-  }
-  seqTable[oldest].valid = false;
-}
-
 bool isDuplicate(uint32_t srcID, uint32_t seqNum) {
     for (int i = 0; i < MAX_SEQ_ENTRIES; i++) {
         if (!seqTable[i].valid || seqTable[i].srcID != srcID) continue;
@@ -359,14 +346,6 @@ void txEnqueue(void* p) {
     txQCount++;
 }
 
-
-// Non-blocking back-off implementation
-void maybeBackoff() {
-  // Random back-off between 10-50 ms without blocking the loop
-  static unsigned long backoffEnd = 0;
-  if (millis() < backoffEnd) return;
-  backoffEnd = millis() + random(10, 50);
-}
 
 void transmitMesh(void* p) {
     delay(random(20, 120));
