@@ -13,6 +13,7 @@
 #include <heltec-eink-modules.h>
 #include <ArduinoJson.h>
 #include <SPI.h>
+#include <SD.h>
 
 // ============================================================
 // RADIO CONFIG

@@ -8,6 +8,7 @@
 #include <Bounce2.h>
 #include <Preferences.h>
 #include <RadioLib.h>
+#include <SD.h>
 #include <SPI.h>
 #include <Update.h>
 #include <WiFi.h>

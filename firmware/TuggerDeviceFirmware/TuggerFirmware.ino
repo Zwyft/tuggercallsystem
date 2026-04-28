@@ -20,6 +20,7 @@
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <SPI.h>
+#include <SD.h>
 #include <heltec-eink-modules.h>
 
 // ============================================================
