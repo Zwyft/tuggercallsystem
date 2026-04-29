@@ -160,22 +160,16 @@ String epochToHHMM(uint32_t epoch) {
 
 void updateDisplay(); // defined in DISPLAY section below
 
-// Heltec Vision Master E290 e-ink display optimizations
+DEPG0290BNS800 display;
+SX1262 radio = new Module(RADIO_NSS, RADIO_DIO1, RADIO_RST, RADIO_BUSY, SPI);
+
 void initDisplay() {
-    // Optimize for Heltec Vision Master E290 specific characteristics
-    display.setRotation(3);  // Portrait mode
-    display.setFactor(0.75f);  // Adjust for better text clarity
-    display.setLut(gDefaultLut);  // Use optimized lookup table
-    display.setPonWaitTime(100);  // Power on wait time optimized for this panel
-    display.setPoffWaitTime(100); // Power off wait time
+    display.setRotation(3);
 }
 
 void smartUpdateDisplay(bool forceFull = false) {
-    updateDisplay(); // draws content then applies content-aware refresh
+    updateDisplay();
 }
-
-DEPG0290BNS800 display;
-SX1262 radio = new Module(RADIO_NSS, RADIO_DIO1, RADIO_RST, RADIO_BUSY, SPI);
 Preferences prefs;
 
 // ============================================================
@@ -472,7 +466,13 @@ void loadActiveOrders() {
 // Optimized for Heltec Vision Master E290 e-ink display
 void updateDisplay() {
     display.setRotation(3);
-    display.fastmodeOn();
+    static unsigned long lastFullRefresh = 0;
+    if (millis() - lastFullRefresh > 30000) {
+        display.fastmodeOff();
+        lastFullRefresh = millis();
+    } else {
+        display.fastmodeOn();
+    }
     DRAW(display) {
         display.setTextColor(BLACK);
 
@@ -540,16 +540,6 @@ void updateDisplay() {
             display.setTextSize(1);
             display.setCursor(0, 66); display.print("Press CONFIRM to order");
         }
-    }
-    display.fastmodeOff();
-    // Heltec Vision Master E290 optimization: use partial refresh for small changes
-    // Full refresh only when content changes significantly
-    static unsigned long lastFullRefresh = 0;
-    if (millis() - lastFullRefresh > 30000) { // Full refresh every 30 seconds
-        display.fullRefresh();
-        lastFullRefresh = millis();
-    } else {
-        display.partialRefresh(); // Faster for minor updates
     }
 }
 
