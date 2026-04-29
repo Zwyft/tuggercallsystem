@@ -4,7 +4,6 @@
 // ============================================================
 
 #include <Arduino.h>
-#include <LittleFS.h>
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <WiFi.h>

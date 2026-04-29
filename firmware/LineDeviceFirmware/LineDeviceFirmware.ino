@@ -4,7 +4,6 @@
 // ============================================================
 
 #include <Arduino.h>
-#include <LittleFS.h>
 #include <ArduinoOTA.h>
 #include <Bounce2.h>
 #include <Preferences.h>
