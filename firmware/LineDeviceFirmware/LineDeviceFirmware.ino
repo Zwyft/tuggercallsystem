@@ -141,6 +141,8 @@ uint32_t getCurrentEpoch() {
 }
 
 
+uint8_t  myZone     = 1;
+
 bool isMyZone(uint8_t route) {
     if (route == 0) return true; // zone 0 = all-call / supervisor
     return route == myZone;
@@ -176,7 +178,6 @@ Preferences prefs;
 // GLOBALS
 // ============================================================
 String   LINE_ID    = "Line ???";
-uint8_t  myZone     = 1;
 uint32_t myDeviceID = 0;
 uint32_t mySeqNum   = 0;
 
