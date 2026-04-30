@@ -216,7 +216,6 @@ void IRAM_ATTR onReceive() { rxFlag = true; }
 // ============================================================
 void transmitMesh(void* p);
 void handleConfigPacket(void* raw);
-void smartUpdateDisplay();
 
 // ============================================================
 // SEQUENCE DEDUP

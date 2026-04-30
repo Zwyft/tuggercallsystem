@@ -203,7 +203,6 @@ void IRAM_ATTR onReceive() { rxFlag = true; }
 // FORWARD DECLARATIONS
 // ============================================================
 void doTransmit(void* p);
-void smartUpdateDisplay();
 void saveOrdersToNVS();
 
 // ============================================================

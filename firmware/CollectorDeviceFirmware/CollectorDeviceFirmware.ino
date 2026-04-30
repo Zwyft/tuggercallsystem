@@ -162,7 +162,6 @@ void IRAM_ATTR onReceive() { rxFlag = true; }
 // ============================================================
 void transmitMesh(void* p);
 void broadcastCatchup();
-void smartUpdateDisplay();
 
 // ============================================================
 // TIME HELPERS
