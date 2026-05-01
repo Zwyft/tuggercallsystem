@@ -4,6 +4,7 @@
 // ============================================================
 
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <WiFi.h>
@@ -43,6 +44,7 @@
 #define PKT_BOOT_REQ   10
 #define PKT_TIMESYNC   11
 #define PKT_HEARTBEAT  12
+#define PKT_DEBUG      15
 
 #define PRIORITY_NORMAL 0
 #define PRIORITY_URGENT 1
@@ -156,6 +158,24 @@ bool     ntpSynced  = false;
 volatile bool rxFlag = false;
 
 void IRAM_ATTR onReceive() { rxFlag = true; }
+
+// ============================================================
+// LOG RING BUFFER
+// ============================================================
+#define LOG_BUF_SIZE 128
+struct LogEntry { uint32_t ms; char msg[88]; };
+static LogEntry logBuf[LOG_BUF_SIZE];
+static int logHead = 0, logCount = 0;
+
+void logWrite(const char* fmt, ...) {
+    char tmp[84]; va_list ap; va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap); va_end(ap);
+    LogEntry& e = logBuf[logHead % LOG_BUF_SIZE];
+    e.ms = millis(); strncpy(e.msg, tmp, sizeof(e.msg)-1); e.msg[sizeof(e.msg)-1] = '\0';
+    logHead++; if (logCount < LOG_BUF_SIZE) logCount++;
+    Serial.println(e.msg);
+}
+#define LOG(tag, fmt, ...) logWrite("[" tag "] " fmt, ##__VA_ARGS__)
 
 // ============================================================
 // FORWARD DECLARATIONS
@@ -284,8 +304,7 @@ void loadOrdersFromNVS() {
     int storedVer = prefs.getInt("fw_ver", 0);
     bool versionOk = (storedVer == FW_VERSION);
     if (!versionOk) {
-        Serial.printf("[NVS] Version mismatch (%d vs %d) — wiping orders\n",
-            storedVer, FW_VERSION);
+        LOG("NVS", "Version mismatch (%d vs %d) — wiping orders", storedVer, FW_VERSION);
         prefs.putString("orders", "[]");
         prefs.putInt("fw_ver", FW_VERSION);
     }
@@ -316,7 +335,7 @@ void loadOrdersFromNVS() {
         activeOrders[idx].timedOut = false;
         numActiveOrders++; // Increment only after slot is fully populated
     }
-    Serial.printf("[NVS] Loaded %d orders\n", numActiveOrders);
+    LOG("NVS", "Loaded %d orders", numActiveOrders);
 }
 
 // ============================================================
@@ -330,7 +349,7 @@ unsigned long lastTX = 0;
 void txEnqueue(void* p) {
    
     if (txQCount >= TX_QUEUE_SIZE) {
-        Serial.println("[TX] Queue full - dropping oldest packet");
+        LOG("TX", "Queue full - dropping oldest");
         txQHead = (txQHead + 1) % TX_QUEUE_SIZE; // evict oldest
         txQCount--;
         // fall through to enqueue newest at tail
@@ -369,7 +388,7 @@ void broadcastTimeSync() {
     snprintf(ts.configStr, sizeof(ts.configStr), "%lu", (unsigned long)epoch);
     isDuplicate(myDeviceID, ts.seqNum);
     transmitMesh(&ts);
-    Serial.printf("[NTP] Broadcast epoch=%lu\n", (unsigned long)epoch);
+    LOG("NTP", "Broadcast epoch=%lu", (unsigned long)epoch);
 }
 
 // ============================================================
@@ -406,7 +425,7 @@ void broadcastCatchup() {
         sent++;
         delay(random(60, 120)); // Inter-packet spacing
     }
-    Serial.printf("[CATCHUP] Sent %d orders\n", sent);
+    LOG("CATCHUP", "Sent %d orders", sent);
 }
 
 // Numeric overload — used for configKey 2 (zone), 4-8 (pins), 9-10 (OTA flags).
@@ -451,7 +470,7 @@ void sendConfigPacket(uint8_t zone, uint8_t key, const String& val) {
             delay(80);
             i = e + 1;
         }
-        Serial.printf("[CFG] Sent %d parts to zone %d\n", 0, zone);
+        LOG("CFG", "Sent parts to zone %d", zone);
         return;
     }
     MeshPacket pkt; memset(&pkt, 0, sizeof(pkt));
@@ -583,6 +602,7 @@ td{border-bottom:1px solid #eee;padding:7px 8px;font-size:.88em}
 <p style="margin-top:12px">
 <a href="/settings">&#9881; Settings &amp; Parts Config</a> &nbsp;|&nbsp;
 <a href="/mesh">&#128246; Mesh Status</a> &nbsp;|&nbsp;
+<a href="/debug">&#128187; Debug Console</a> &nbsp;|&nbsp;
 <a href="/history">&#128203; Shift History</a>
 </p>
 <script>
@@ -691,7 +711,17 @@ table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:6p
 </form>
 </div>
 
-<p><a href="/">&#8592; Dashboard</a></p>
+<div class="card">
+<h2>&#128225; Push WiFi OTA to All Mesh Devices</h2>
+<p style="font-size:.85em;color:#666">Sends WiFi credentials over LoRa mesh so Tuggers and Line Devices can receive OTA updates wirelessly. SSID and password must be 19 chars or less.</p>
+<form action="/api/pushwifi" method="post">
+<label>WiFi SSID (max 19 chars):</label><input name="ssid" size="20" placeholder="WarehouseWiFi">
+<label>Password (max 19 chars):</label><input name="pass" type="password" size="20">
+<br><br><input type="submit" value="Push Credentials to All Devices">
+</form>
+</div>
+
+<p><a href="/">&#8592; Dashboard</a> &nbsp;|&nbsp; <a href="/debug">&#128187; Debug Console</a></p>
 </body></html>
 )rawliteral";
 
@@ -917,10 +947,186 @@ void setupWebServer() {
                 prefs.putString("wifi_ssid", ssid);
                 prefs.putString("wifi_pass", pass);
                 prefs.end();
-                Serial.printf("[WIFI] Credentials saved: %s\n", ssid.c_str());
+                LOG("WIFI", "Credentials saved: %s", ssid.c_str());
             }
         }
         server.sendHeader("Location", "/settings"); server.send(303);
+    });
+
+    // Push WiFi credentials to all mesh devices via PKT_CONFIG
+    server.on("/api/pushwifi", [&]() {
+        if (server.method() == HTTP_POST &&
+            server.hasArg("ssid") && server.hasArg("pass")) {
+            String ssid = server.arg("ssid");
+            String pass = server.arg("pass");
+            if (ssid.length() > 0 && ssid.length() <= 19 && pass.length() <= 19) {
+                // key 11 = wifi_ssid, key 12 = wifi_pass, key 9 = enable+reconnect
+                // Send to route 0 (all-call) — TTL carries to all zones
+                sendConfigPacket(0, 11, ssid); delay(200);
+                sendConfigPacket(0, 12, pass); delay(200);
+                // Enable packet uses configVal=1, send as raw packet
+                MeshPacket en; memset(&en, 0, sizeof(en));
+                en.srcID = myDeviceID; en.seqNum = nextSeq();
+                en.type = PKT_CONFIG; en.route = 0;
+                en.ttl = getSmartTTL(); en.configKey = 9; en.configVal = 1;
+                isDuplicate(myDeviceID, en.seqNum);
+                transmitMesh(&en);
+                LOG("CFG", "WiFi creds pushed to mesh: %s", ssid.c_str());
+            }
+        }
+        server.sendHeader("Location", "/settings"); server.send(303);
+    });
+
+    // /api/log — JSON log ring buffer
+    server.on("/api/log", []() {
+        String js = "{\"entries\":[";
+        int count = (logCount < LOG_BUF_SIZE) ? logCount : LOG_BUF_SIZE;
+        int start = (logHead - count + LOG_BUF_SIZE * 2) % LOG_BUF_SIZE;
+        for (int i = 0; i < count; i++) {
+            int idx = (start + i) % LOG_BUF_SIZE;
+            if (i > 0) js += ",";
+            js += "{\"ms\":"; js += logBuf[idx].ms;
+            js += ",\"msg\":\"";
+            for (char* p = logBuf[idx].msg; *p; p++) {
+                if (*p == '"') js += "\\\"";
+                else if (*p == '\\') js += "\\\\";
+                else js += *p;
+            }
+            js += "\"}";
+        }
+        js += "],\"total\":"; js += logHead; js += "}";
+        server.send(200, "application/json", js);
+    });
+
+    // /api/inject — inject test commands
+    server.on("/api/inject", []() {
+        if (server.method() != HTTP_POST) { server.send(405); return; }
+        JsonDocument doc;
+        if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) {
+            server.send(400, "application/json", "{\"error\":\"bad json\"}"); return;
+        }
+        String cmd = doc["cmd"] | "";
+        if (cmd == "call") {
+            uint8_t zone = doc["zone"] | 1;
+            String item  = doc["item"] | "TestLine|TestPart";
+            if (numActiveOrders < MAX_ACTIVE_ORDERS) {
+                int idx = numActiveOrders;
+                activeOrders[idx] = {};
+                int sep = item.indexOf('|');
+                String ln = (sep>0) ? item.substring(0,sep) : item;
+                String pt = (sep>0) ? item.substring(sep+1) : "";
+                ln.toCharArray(activeOrders[idx].lineID, 24);
+                pt.toCharArray(activeOrders[idx].part, 24);
+                String t = epochToHHMM(getCurrentEpoch());
+                t.toCharArray(activeOrders[idx].timeOrdered, 6);
+                activeOrders[idx].srcID = myDeviceID;
+                activeOrders[idx].seqNum = nextSeq();
+                activeOrders[idx].timestamp = millis();
+                activeOrders[idx].zone = zone;
+                activeOrders[idx].priority = doc["priority"] | 0;
+                numActiveOrders++;
+                saveOrdersToNVS(); smartUpdateDisplay();
+                LOG("INJECT", "call %s Z%d", item.c_str(), zone);
+            }
+            server.send(200, "application/json", "{\"ok\":true}");
+        } else if (cmd == "claim") {
+            String item = doc["item"] | "";
+            for (int i = 0; i < numActiveOrders; i++) {
+                String full = String(activeOrders[i].lineID)+"|"+String(activeOrders[i].part);
+                if (!activeOrders[i].claimed && (item.length()==0 || full==item || String(activeOrders[i].lineID)==item)) {
+                    activeOrders[i].claimed = true; activeOrders[i].claimedAt = millis();
+                }
+            }
+            saveOrdersToNVS(); smartUpdateDisplay();
+            server.send(200, "application/json", "{\"ok\":true}");
+        } else if (cmd == "catchup") {
+            broadcastCatchup();
+            server.send(200, "application/json", "{\"ok\":true}");
+        } else if (cmd == "timesync") {
+            broadcastTimeSync();
+            server.send(200, "application/json", "{\"ok\":true}");
+        } else if (cmd == "wipe") {
+            prefs.begin("collector", false); prefs.clear(); prefs.end();
+            server.send(200, "application/json", "{\"ok\":true,\"msg\":\"rebooting\"}");
+            delay(200); ESP.restart();
+        } else if (cmd == "status") {
+            String js = "{\"uptime\":"; js += millis()/1000;
+            js += ",\"orders\":"; js += numActiveOrders;
+            js += ",\"peers\":"; js += numNeighbors;
+            js += ",\"ntpSynced\":"; js += ntpSynced ? "true" : "false";
+            js += ",\"txQ\":"; js += txQCount;
+            js += ",\"wifiOta\":"; js += (WiFi.status()==WL_CONNECTED) ? "true":"false";
+            js += "}";
+            server.send(200, "application/json", js);
+        } else {
+            server.send(400, "application/json", "{\"error\":\"unknown cmd\"}");
+        }
+    });
+
+    // /debug — live web debug console
+    server.on("/debug", []() {
+        server.send(200, "text/html", R"rawliteral(<!DOCTYPE html><html><head>
+<meta charset="utf-8"><title>MMCall Debug</title>
+<style>
+body{font-family:monospace;background:#111;color:#0f0;margin:0;padding:10px}
+h2{color:#fff;margin:0 0 8px}
+#log{height:60vh;overflow-y:auto;background:#000;padding:8px;border:1px solid #333;font-size:13px;white-space:pre-wrap}
+.tag-CALL{color:#0f0}.tag-CLAIM{color:#0ff}.tag-NTP{color:#ff0}
+.tag-BOOT{color:#f80}.tag-TIMEOUT{color:#f44}.tag-REMOTE{color:#a0f}
+.tag-OTA{color:#08f}.tag-CFG{color:#fa0}.tag-default{color:#aaa}
+.panel{display:flex;gap:10px;margin:8px 0;flex-wrap:wrap}
+.btn{background:#222;color:#0f0;border:1px solid #0f0;padding:6px 12px;cursor:pointer;border-radius:3px;font-family:monospace}
+.btn:hover{background:#0f0;color:#000}
+input{background:#111;color:#0f0;border:1px solid #333;padding:4px 8px;font-family:monospace}
+</style></head><body>
+<h2>&#x1F4E1; MMCall Debug Console</h2>
+<div class="panel">
+  <button class="btn" onclick="inject({cmd:'catchup'})">Force Catchup</button>
+  <button class="btn" onclick="inject({cmd:'timesync'})">Force TimeSync</button>
+  <button class="btn" onclick="inject({cmd:'status'}).then(r=>r.json()).then(d=>alert(JSON.stringify(d,null,2)))">Device Status</button>
+  <button class="btn" onclick="if(confirm('Wipe NVS and reboot?'))inject({cmd:'wipe'})">Wipe NVS + Reboot</button>
+</div>
+<div class="panel">
+  <input id="zone" placeholder="Zone" value="1" style="width:50px">
+  <input id="item" placeholder="Line|Part" value="TestLine|Pod Pickup">
+  <button class="btn" onclick="inject({cmd:'call',zone:+id('zone').value,item:id('item').value})">Inject Call</button>
+  <button class="btn" onclick="inject({cmd:'claim',item:id('item').value})">Inject Claim</button>
+</div>
+<div class="panel">
+  <button class="btn" onclick="clearLog()">Clear</button>
+  <span id="status" style="color:#888;align-self:center;font-size:12px"></span>
+</div>
+<div id="log"></div>
+<script>
+var lastTotal=0;
+function id(x){return document.getElementById(x)}
+function colorLine(msg){
+  var m=msg.match(/^\[(\w+)(?::\w+)?\]/);
+  var cls=m?('tag-'+m[1]):'tag-default';
+  return '<span class="'+cls+'">'+msg.replace(/</g,'&lt;')+'</span>';
+}
+function pad(n){return n<10?'0'+n:n}
+function ts(ms){var s=Math.floor(ms/1000);return pad(Math.floor(s/3600)%24+':'+pad(Math.floor(s/60)%60)+':'+pad(s%60));}
+function poll(){
+  fetch('/api/log').then(r=>r.json()).then(d=>{
+    if(d.total!==lastTotal){
+      var div=id('log');
+      var atBottom=div.scrollTop+div.clientHeight>=div.scrollHeight-20;
+      var html='';
+      d.entries.forEach(function(e){html+=ts(e.ms)+' '+colorLine(e.msg)+'\n';});
+      div.innerHTML=html;
+      if(atBottom)div.scrollTop=div.scrollHeight;
+      lastTotal=d.total;
+      id('status').textContent='Updated '+new Date().toLocaleTimeString()+' ('+d.total+' total)';
+    }
+  }).catch(function(){id('status').textContent='Connection lost';});
+}
+function inject(cmd){
+  return fetch('/api/inject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cmd)});
+}
+function clearLog(){id('log').innerHTML='';lastTotal=0;}
+setInterval(poll,1500);poll();
+</script></body></html>)rawliteral");
     });
 
     server.begin();
@@ -958,7 +1164,7 @@ void setup() {
     SPI.begin(RADIO_SCLK, RADIO_MISO, RADIO_MOSI, RADIO_NSS);
     int state = radio.begin(RF_FREQUENCY, BANDWIDTH, SPREADING_FACTOR,
                             CODING_RATE, SYNC_WORD, OUTPUT_POWER, PREAMBLE_LENGTH);
-    if (state != RADIOLIB_ERR_NONE) { Serial.printf("[RADIO] Failed: %d\n", state); while(true); }
+    if (state != RADIOLIB_ERR_NONE) { LOG("RADIO", "Failed: %d", state); while(true); }
     radio.setDio1Action(onReceive);
     radio.startReceive();
 
@@ -976,15 +1182,18 @@ void setup() {
         if (WiFi.status() == WL_CONNECTED) {
             timeClient.begin(); timeClient.update();
             ntpSynced = true;
-            Serial.printf("[NTP] Synced: %s\n", timeClient.getFormattedTime().c_str());
+            LOG("NTP", "Synced: %s", timeClient.getFormattedTime().c_str());
             broadcastTimeSync();
+            ArduinoOTA.setHostname("MMCall-Collector");
+            ArduinoOTA.begin();
+            LOG("OTA", "WiFi OTA ready on MMCall-Collector");
         }
     }
 
     delay(300);
     broadcastCatchup();
 
-    Serial.printf("[BOOT] Collector ready ID=0x%08X\n", myDeviceID);
+    LOG("BOOT", "Collector ready ID=0x%08X", myDeviceID);
     smartUpdateDisplay();
 }
 
@@ -993,6 +1202,7 @@ void setup() {
 // ============================================================
 void loop() {
     server.handleClient();
+    if (WiFi.status() == WL_CONNECTED) ArduinoOTA.handle();
 
     // NTP update every 10 minutes
     static unsigned long lastNTP = 0;
@@ -1077,8 +1287,7 @@ void loop() {
                     if (existingIdx >= 0) {
                         // Already have this order — just update seqNum reference
                         activeOrders[existingIdx].seqNum = pkt.seqNum;
-                        Serial.printf("[CALL] Dedup update for %s|%s\n",
-                            lineStr.c_str(), partStr.c_str());
+                        LOG("CALL", "Dedup update for %s|%s", lineStr.c_str(), partStr.c_str());
                     }
                     if (existingIdx < 0 && numActiveOrders < MAX_ACTIVE_ORDERS) {
                         int idx = numActiveOrders; // Increment AFTER slot is fully written
@@ -1096,9 +1305,8 @@ void loop() {
                         activeOrders[idx].timedOut  = false;
                         numActiveOrders++; // Only increment after full write
                         saveOrdersToNVS(); smartUpdateDisplay();
-                        Serial.printf("[CALL] %s|%s Z%d t=%s\n",
-                            lineStr.c_str(), partStr.c_str(), pkt.route,
-                            activeOrders[idx].timeOrdered);
+                        LOG("CALL", "%s|%s Z%d t=%s", lineStr.c_str(), partStr.c_str(),
+                            pkt.route, activeOrders[idx].timeOrdered);
                     }
                 }
 
@@ -1121,13 +1329,17 @@ void loop() {
                 }
 
                 if (pkt.type == PKT_BOOT_REQ) {
-                    Serial.printf("[BOOT_REQ] From 0x%08X — sending catchup+timesync\n", pkt.srcID);
-                    // startReceive called after the outer if-block — fine.
-                    // Use short delay only so booting device is ready to receive.
+                    LOG("BOOT_REQ", "From 0x%08X — sending catchup+timesync", pkt.srcID);
                     delay(150);
                     broadcastTimeSync();
                     delay(50);
                     broadcastCatchup();
+                }
+
+                if (pkt.type == PKT_DEBUG) {
+                    char remote[92];
+                    snprintf(remote, sizeof(remote), "[REMOTE:0x%08X] %s", pkt.srcID, pkt.item);
+                    logWrite(remote);
                 }
             }
         }
@@ -1145,7 +1357,7 @@ void loop() {
             if (elapsed > 45UL * 60 * 1000) {
                 activeOrders[i].timedOut = true;
                 changed = true;
-                Serial.printf("[TIMEOUT] %s|%s Z%d ordered=%s\n",
+                LOG("TIMEOUT", "%s|%s Z%d ordered=%s",
                     activeOrders[i].lineID, activeOrders[i].part,
                     activeOrders[i].zone, activeOrders[i].timeOrdered);
             }

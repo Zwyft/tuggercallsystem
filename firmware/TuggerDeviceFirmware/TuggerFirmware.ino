@@ -16,11 +16,13 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <ArduinoOTA.h>
 #include <Bounce2.h>
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <SPI.h>
 #include <SD.h>
+#include <WiFi.h>
 #include <heltec-eink-modules.h>
 
 // ============================================================
@@ -53,6 +55,7 @@
 #define PKT_TIMESYNC   11
 #define PKT_HEARTBEAT  12
 #define PKT_ACK        13
+#define PKT_DEBUG      15
 
 #define PRIORITY_NORMAL 0
 #define PRIORITY_URGENT 1
@@ -92,7 +95,7 @@ int txQHead = 0, txQTail = 0, txQCount = 0;
 
 void txEnqueue(void* p) {
     if (txQCount >= TX_QUEUE_SIZE) {
-        Serial.println("[TX] Queue full - dropping oldest packet");
+        LOG("TX", "Queue full - dropping oldest");
         txQHead = (txQHead + 1) % TX_QUEUE_SIZE; // evict oldest
         txQCount--;
         // fall through to enqueue newest at tail
@@ -189,10 +192,14 @@ uint32_t mySeqNum     = 0;
 // DUAL ZONE SUPPORT
 uint8_t  zoneA        = 1;     // Primary zone
 uint8_t  zoneB        = 0;     // Secondary zone (0 = off)
-bool     dualZone     = false; // Enable during slow hours / shift change
+bool     dualZone     = false;
 int      selectedCall = -1;
 bool     menuActive   = false;
 String   currentShift = "Day";
+
+String   wifiSSID       = "";
+String   wifiPass       = "";
+bool     wifiOtaEnabled = false;
 
 volatile bool rxFlag = false;
 unsigned long lastTX = 0;      // Tracks last TX time for spacing
@@ -200,10 +207,29 @@ unsigned long lastTX = 0;      // Tracks last TX time for spacing
 void IRAM_ATTR onReceive() { rxFlag = true; }
 
 // ============================================================
+// LOG RING BUFFER
+// ============================================================
+#define LOG_BUF_SIZE 64
+struct LogEntry { uint32_t ms; char msg[88]; };
+static LogEntry logBuf[LOG_BUF_SIZE];
+static int logHead = 0, logCount = 0;
+
+void logWrite(const char* fmt, ...) {
+    char tmp[84]; va_list ap; va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap); va_end(ap);
+    LogEntry& e = logBuf[logHead % LOG_BUF_SIZE];
+    e.ms = millis(); strncpy(e.msg, tmp, sizeof(e.msg)-1); e.msg[sizeof(e.msg)-1] = '\0';
+    logHead++; if (logCount < LOG_BUF_SIZE) logCount++;
+    Serial.println(e.msg);
+}
+#define LOG(tag, fmt, ...) logWrite("[" tag "] " fmt, ##__VA_ARGS__)
+
+// ============================================================
 // FORWARD DECLARATIONS
 // ============================================================
 void doTransmit(void* p);
 void saveOrdersToNVS();
+void remoteLog(const char* msg);
 
 // ============================================================
 // SEQUENCE DEDUP
@@ -326,8 +352,7 @@ void loadOrdersFromNVS() {
     prefs.begin("tugger-v1", false);
     int storedVer = prefs.getInt("fw_ver", 0);
     if (storedVer != FW_VERSION) {
-        Serial.printf("[NVS] Version mismatch (%d vs %d) — wiping orders\n",
-            storedVer, FW_VERSION);
+        LOG("NVS", "Version mismatch (%d vs %d) — wiping orders", storedVer, FW_VERSION);
         prefs.putString("orders", "[]");
         prefs.putInt("fw_ver", FW_VERSION);
         prefs.end();
@@ -473,6 +498,8 @@ void claimCall(int index) {
     // for 5 minutes regardless of whether the collector receives the claim.
     recordClearedCall(claim.item, activeCalls[index].zone);
 
+    LOG("CLAIM", "Sending: %s", claim.item);
+    remoteLog(claim.item);
     isDuplicate(myDeviceID, claim.seqNum);
     doTransmit(&claim);
 
@@ -662,6 +689,32 @@ void bootSelectionMenu() {
 }
 
 // ============================================================
+// WIFI OTA
+// ============================================================
+void initWifiOta() {
+    if (!wifiOtaEnabled || wifiSSID.length() == 0) return;
+    WiFi.begin(wifiSSID.c_str(), wifiPass.c_str());
+    unsigned long t = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t < 5000) delay(100);
+    if (WiFi.status() == WL_CONNECTED) {
+        ArduinoOTA.setHostname("MMCall-Tugger");
+        ArduinoOTA.begin();
+        LOG("OTA", "WiFi OK, OTA ready on MMCall-Tugger");
+    } else {
+        WiFi.disconnect(true);
+        LOG("OTA", "WiFi connect failed");
+    }
+}
+
+void remoteLog(const char* msg) {
+    MeshPacket dbg; memset(&dbg, 0, sizeof(dbg));
+    dbg.srcID = myDeviceID; dbg.seqNum = nextSeq();
+    dbg.type  = PKT_DEBUG;  dbg.route  = 0; dbg.ttl = 1;
+    strncpy(dbg.item, msg, 27); dbg.item[27] = '\0';
+    txEnqueue(&dbg);
+}
+
+// ============================================================
 // SETUP
 // ============================================================
 void setup() {
@@ -669,12 +722,15 @@ void setup() {
     randomSeed(esp_random()); // Seed RNG for backoff
 
     prefs.begin("tugger-v1", false);
-    CLEAR_BUTTON_PIN = prefs.getInt("clear_pin", 21);
-    myDeviceID = prefs.getUInt("device_id", 0);
-    mySeqNum   = prefs.getUInt("my_seq",    0);
-    zoneA      = prefs.getInt("zone_a",     1);
-    zoneB      = prefs.getInt("zone_b",     0);
-    dualZone   = prefs.getBool("dual_zone", false);
+    CLEAR_BUTTON_PIN = prefs.getInt("clear_pin",  21);
+    myDeviceID       = prefs.getUInt("device_id",  0);
+    mySeqNum         = prefs.getUInt("my_seq",      0);
+    zoneA            = prefs.getInt("zone_a",       1);
+    zoneB            = prefs.getInt("zone_b",       0);
+    dualZone         = prefs.getBool("dual_zone", false);
+    wifiSSID         = prefs.getString("wifi_ssid", "");
+    wifiPass         = prefs.getString("wifi_pass", "");
+    wifiOtaEnabled   = prefs.getBool("wifi_ota",  false);
     prefs.end();
 
     if (myDeviceID == 0) {
@@ -712,24 +768,25 @@ void setup() {
     }
 
     radio.setDio1Action(onReceive);
-    bootSelectionMenu(); // Zone selected — now load orders for correct zone
+    bootSelectionMenu();
     loadOrdersFromNVS();
+    initWifiOta();
 
-    // Stagger boot request BEFORE radio.startReceive() so the delay
-    // doesn't cause missed packets during an already-live session
     delay(random(100, 400));
     radio.startReceive();
     sendBootRequest();
     smartUpdateDisplay();
 
-    Serial.printf("[BOOT] ID=0x%08X ZoneA=%d ZoneB=%d Dual=%d SF=%d\n",
-        myDeviceID, zoneA, zoneB, dualZone, SPREADING_FACTOR);
+    LOG("BOOT", "ID=0x%08X ZoneA=%d ZoneB=%d Dual=%d SF=%d WiFiOTA=%d",
+        myDeviceID, zoneA, zoneB, dualZone, SPREADING_FACTOR, wifiOtaEnabled);
 }
 
 // ============================================================
 // LOOP
 // ============================================================
 void loop() {
+    if (wifiOtaEnabled && WiFi.status() == WL_CONNECTED) ArduinoOTA.handle();
+
     // Heartbeat every 60s
     static unsigned long lastHB = 0;
     if (millis() - lastHB > 60000UL) { lastHB = millis(); sendHeartbeat(); }
@@ -776,6 +833,8 @@ void loop() {
                     String t = epochToHHMM(getCurrentEpoch());
                     char tb[6]; t.toCharArray(tb, 6);
                     addActiveCall(pkt.srcID, pkt.seqNum, pkt.item, pkt.route, pkt.priority, tb);
+                    LOG("CALL", "Z%d %s", pkt.route, pkt.item);
+                    remoteLog(pkt.item);
                     smartUpdateDisplay();
                 }
 
@@ -784,8 +843,7 @@ void loop() {
                     // the 30s catchup from un-doing a claim before the collector
                     // has processed the PKT_CLAIM. Mirror of line device clearedAt.
                     if (wasRecentlyCleared(pkt.item, pkt.route)) {
-                        Serial.printf("[CATCHUP] Blocked revival of recently claimed: %s\n",
-                            pkt.item);
+                        LOG("CATCHUP", "Blocked revival: %s", pkt.item);
                     } else {
                     String cs = String(pkt.configStr);
                     int pipe = cs.indexOf('|');
@@ -834,11 +892,30 @@ void loop() {
 
                 if (pkt.type == PKT_CONFIG) {
                     prefs.begin("tugger-v1", false);
-                    prefs.putInt("clear_pin", pkt.configVal);
-                    prefs.putUInt("my_seq", mySeqNum + 1000);
+                    switch (pkt.configKey) {
+                        case 1:  // clear_pin + restart
+                            prefs.putInt("clear_pin", pkt.configVal);
+                            prefs.putUInt("my_seq", mySeqNum + 1000);
+                            prefs.end(); ESP.restart(); break;
+                        case 9:  // wifi_ota enable + reconnect (matches Line Device key 9)
+                            wifiOtaEnabled = (pkt.configVal == 1);
+                            prefs.putBool("wifi_ota", wifiOtaEnabled);
+                            prefs.end();
+                            LOG("CFG", "WiFiOTA=%d", wifiOtaEnabled);
+                            if (wifiOtaEnabled) initWifiOta();
+                            return;
+                        case 11: // wifi_ssid (matches Line Device key 11)
+                            wifiSSID = String(pkt.configStr);
+                            prefs.putString("wifi_ssid", wifiSSID); break;
+                        case 12: // wifi_pass (matches Line Device key 12)
+                            wifiPass = String(pkt.configStr);
+                            prefs.putString("wifi_pass", wifiPass); break;
+                        default: break;
+                    }
                     prefs.end();
-                    ESP.restart();
                 }
+
+                if (pkt.type == PKT_DEBUG) { /* no action — Collector handles it */ }
             }
         }
         radio.startReceive();

@@ -44,6 +44,7 @@
 #define PKT_BOOT_REQ   10
 #define PKT_TIMESYNC   11
 #define PKT_HEARTBEAT  12
+#define PKT_DEBUG      15
 #define PKT_OTA_BEGIN   5
 #define PKT_OTA_CHUNK   6
 #define PKT_OTA_END     7
@@ -206,6 +207,24 @@ unsigned long otaLastChunkMs    = 0;
 
 volatile bool rxFlag = false;
 
+// ============================================================
+// LOG RING BUFFER
+// ============================================================
+#define LOG_BUF_SIZE 64
+struct LogEntry { uint32_t ms; char msg[88]; };
+static LogEntry logBuf[LOG_BUF_SIZE];
+static int logHead = 0, logCount = 0;
+
+void logWrite(const char* fmt, ...) {
+    char tmp[84]; va_list ap; va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap); va_end(ap);
+    LogEntry& e = logBuf[logHead % LOG_BUF_SIZE];
+    e.ms = millis(); strncpy(e.msg, tmp, sizeof(e.msg)-1); e.msg[sizeof(e.msg)-1] = '\0';
+    logHead++; if (logCount < LOG_BUF_SIZE) logCount++;
+    Serial.println(e.msg);
+}
+#define LOG(tag, fmt, ...) logWrite("[" tag "] " fmt, ##__VA_ARGS__)
+
 Bounce2::Button upBtn      = Bounce2::Button();
 Bounce2::Button downBtn    = Bounce2::Button();
 Bounce2::Button confirmBtn = Bounce2::Button();
@@ -217,6 +236,7 @@ void IRAM_ATTR onReceive() { rxFlag = true; }
 // ============================================================
 void transmitMesh(void* p);
 void handleConfigPacket(void* raw);
+void remoteLog(const char* msg);
 
 // ============================================================
 // SEQUENCE DEDUP
@@ -398,7 +418,7 @@ void loadActiveOrders() {
     prefs.begin(NVS_NS, false); // read-write so we can update version if needed
     int storedVer = prefs.getInt(NVS_FW_VER, 0);
     if (storedVer != FW_VERSION) {
-        Serial.printf("[NVS] FW version mismatch (stored=%d current=%d) — wiping orders\n",
+        LOG("NVS", "FW version mismatch (stored=%d current=%d) — wiping orders",
             storedVer, FW_VERSION);
         prefs.putString("active",  "");
         prefs.putString("cleared", "");
@@ -616,6 +636,13 @@ void sendCallPacket(int callIndex) {
     anyCallActive = true;
     saveActiveOrders();
     smartUpdateDisplay();
+    LOG("CALL", "Sent Z%d %s", myZone, pkt.item);
+    remoteLog(pkt.item);
+    transmitMesh(&pkt);
+    // Re-transmit once for reliability — Collector/Tugger dedup by item+zone
+    delay(random(80, 150));
+    pkt.seqNum = nextSeq();
+    isDuplicate(myDeviceID, pkt.seqNum);
     transmitMesh(&pkt);
     if (PIN_LED >= 0) digitalWrite(PIN_LED, HIGH);
     if (PIN_BUZZER >= 0) { digitalWrite(PIN_BUZZER, HIGH); delay(200); digitalWrite(PIN_BUZZER, LOW); }
@@ -656,8 +683,8 @@ void handleConfigPacket(void* raw) {
             if (PIN_BUZZER >= 0) pinMode(PIN_BUZZER, OUTPUT); break;
         case 9:  wifiOtaEnabled = (pkt->configVal == 1); needRestart = true; break;
         case 10: loraOtaEnabled = (pkt->configVal == 1);                     break;
-        case 11: wifiSSID = String(pkt->configStr); needRestart = true;     break;
-        case 12: wifiPass = String(pkt->configStr); needRestart = true;     break;
+        case 11: wifiSSID = String(pkt->configStr);                          break;
+        case 12: wifiPass = String(pkt->configStr);                          break;
         case 30: // Append single part name (sent by collector for long lists)
             if (pkt->configStr[0] == '[') {
                 // Start-of-list marker — reset the parts list
@@ -803,7 +830,19 @@ void initWifiOta() {
     while (WiFi.status() != WL_CONNECTED && millis() - t < 3000) delay(100);
     if (WiFi.status() == WL_CONNECTED) {
         ArduinoOTA.setHostname(LINE_ID.c_str()); ArduinoOTA.begin();
-    } else { WiFi.disconnect(true); }
+        LOG("OTA", "WiFi OK, OTA ready on %s", LINE_ID.c_str());
+    } else {
+        WiFi.disconnect(true);
+        LOG("OTA", "WiFi connect failed");
+    }
+}
+
+void remoteLog(const char* msg) {
+    MeshPacket dbg; memset(&dbg, 0, sizeof(dbg));
+    dbg.srcID = myDeviceID; dbg.seqNum = nextSeq();
+    dbg.type  = PKT_DEBUG;  dbg.route  = 0; dbg.ttl = 1;
+    strncpy(dbg.item, msg, 27); dbg.item[27] = '\0';
+    txEnqueue(&dbg);
 }
 
 // ============================================================
@@ -861,7 +900,7 @@ void setup() {
 
     sendBootRequest();
 
-    Serial.printf("[BOOT] %s Zone=%d ID=0x%08X\n", LINE_ID.c_str(), myZone, myDeviceID);
+    LOG("BOOT", "%s Zone=%d ID=0x%08X", LINE_ID.c_str(), myZone, myDeviceID);
 }
 
 // ============================================================
@@ -927,7 +966,7 @@ void loop() {
                         if (!otaInProgress || ota->sessionID != otaSessionID) break;
                         // Bounds-check dataLen before any read/write operation
                         if (ota->dataLen == 0 || ota->dataLen > OTA_CHUNK_SIZE) {
-                            Serial.printf("[OTA] Invalid dataLen=%d, aborting\n", ota->dataLen);
+                            LOG("OTA", "Invalid dataLen=%d, aborting", ota->dataLen);
                             sendOtaAck(ota->sessionID, otaReceivedChunks); break;
                         }
                         if (xorChecksum(ota->data, ota->dataLen) != ota->checksum) {
@@ -977,7 +1016,8 @@ void loop() {
                             callTypes[i].active    = false;
                             callTypes[i].clearedAt = millis(); // Block catchup revival
                             cleared = true;
-                            Serial.printf("[CLAIM] Cleared: %s\n", callTypes[i].label);
+                            LOG("CLAIM", "Cleared: %s", callTypes[i].label);
+                            remoteLog(callTypes[i].label);
                         }
                     }
                     if (cleared) {
@@ -1005,7 +1045,7 @@ void loop() {
                             // Skip if recently cleared
                             if (callTypes[i].clearedAt > 0 &&
                                 millis() - callTypes[i].clearedAt < 600000UL) {
-                                Serial.printf("[CATCHUP] Blocked revival of cleared: %s\n",
+                                LOG("CATCHUP", "Blocked revival of cleared: %s",
                                     callTypes[i].label);
                                 continue;
                             }
