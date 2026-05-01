@@ -86,6 +86,24 @@ typedef struct {
 } MeshPacket;
 
 // ============================================================
+// LOG RING BUFFER
+// ============================================================
+#define LOG_BUF_SIZE 64
+struct LogEntry { uint32_t ms; char msg[88]; };
+static LogEntry logBuf[LOG_BUF_SIZE];
+static int logHead = 0, logCount = 0;
+
+void logWrite(const char* fmt, ...) {
+    char tmp[84]; va_list ap; va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap); va_end(ap);
+    LogEntry& e = logBuf[logHead % LOG_BUF_SIZE];
+    e.ms = millis(); strncpy(e.msg, tmp, sizeof(e.msg)-1); e.msg[sizeof(e.msg)-1] = '\0';
+    logHead++; if (logCount < LOG_BUF_SIZE) logCount++;
+    Serial.println(e.msg);
+}
+#define LOG(tag, fmt, ...) logWrite("[" tag "] " fmt, ##__VA_ARGS__)
+
+// ============================================================
 // TX QUEUE — prevents back-to-back TX starving RX
 // Outgoing packets are queued and sent with spacing
 // ============================================================
@@ -205,24 +223,6 @@ volatile bool rxFlag = false;
 unsigned long lastTX = 0;      // Tracks last TX time for spacing
 
 void IRAM_ATTR onReceive() { rxFlag = true; }
-
-// ============================================================
-// LOG RING BUFFER
-// ============================================================
-#define LOG_BUF_SIZE 64
-struct LogEntry { uint32_t ms; char msg[88]; };
-static LogEntry logBuf[LOG_BUF_SIZE];
-static int logHead = 0, logCount = 0;
-
-void logWrite(const char* fmt, ...) {
-    char tmp[84]; va_list ap; va_start(ap, fmt);
-    vsnprintf(tmp, sizeof(tmp), fmt, ap); va_end(ap);
-    LogEntry& e = logBuf[logHead % LOG_BUF_SIZE];
-    e.ms = millis(); strncpy(e.msg, tmp, sizeof(e.msg)-1); e.msg[sizeof(e.msg)-1] = '\0';
-    logHead++; if (logCount < LOG_BUF_SIZE) logCount++;
-    Serial.println(e.msg);
-}
-#define LOG(tag, fmt, ...) logWrite("[" tag "] " fmt, ##__VA_ARGS__)
 
 // ============================================================
 // FORWARD DECLARATIONS
