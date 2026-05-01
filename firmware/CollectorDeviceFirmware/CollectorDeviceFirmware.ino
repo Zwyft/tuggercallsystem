@@ -565,220 +565,302 @@ void updateDisplay() {
 // WEB PAGES
 // ============================================================
 const char* dashboardHTML PROGMEM = R"rawliteral(
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>MMCall Collector</title>
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MMCall</title>
 <style>
-*{box-sizing:border-box}
-body{font-family:sans-serif;background:#f0f0f0;margin:0;padding:16px}
-h1{margin:0 0 6px;font-size:1.4em}
-.stats{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
-.stat{background:#fff;border-radius:6px;padding:8px 14px;box-shadow:0 1px 3px rgba(0,0,0,.15);min-width:80px;text-align:center}
-.stat span{font-size:1.8em;font-weight:bold;display:block}
-table{border-collapse:collapse;width:100%;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.12)}
-th{background:#37474f;color:#fff;padding:9px 8px;text-align:left;font-size:.85em}
-td{border-bottom:1px solid #eee;padding:7px 8px;font-size:.88em}
-.active{background:#fff}
-.urgent{background:#fff8e1;border-left:3px solid #ff9800}
-.claimed{background:#f9f9f9;color:#aaa;text-decoration:line-through}
-.warn{background:#fff3e0}
-.danger{background:#fce4ec;font-weight:bold}
-.timedout{background:#ffcdd2;color:#b71c1c;font-weight:bold}
-.timer-bar{height:5px;border-radius:2px;background:#e0e0e0;margin-top:3px;width:100%}
-.timer-fill{height:5px;border-radius:2px;transition:width .5s}
-#ts{font-size:.75em;color:#888}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#0c0f18;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden}
+header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#080b12;border-bottom:1px solid #1a2540;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.logo{font-size:1.1em;font-weight:800;letter-spacing:.12em;color:#f1f5f9;text-transform:uppercase}
+.ld{width:8px;height:8px;border-radius:50%;background:#1e2d45;transition:background .4s,box-shadow .4s}
+.ld.live{background:#10b981;box-shadow:0 0 7px #10b981aa}
+.ld.stale{background:#f59e0b;box-shadow:0 0 7px #f59e0baa}
+.pills{display:flex;gap:5px;flex-wrap:wrap;flex:1}
+.pill{font-size:.68em;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid transparent;white-space:nowrap}
+.pa{color:#60a5fa;background:#0d1f38;border-color:#1a3a6a}
+.pu{color:#fbbf24;background:#1a1100;border-color:#3a2800}
+.pc{color:#34d399;background:#031a10;border-color:#064a2a}
+.pt{color:#f87171;background:#1a0505;border-color:#4a0f0f}
+.pp{color:#94a3b8;background:#111827;border-color:#1e2d45}
+#clk{font-size:.82em;font-family:monospace;color:#475569;flex-shrink:0}
+#kb{display:flex;gap:8px;padding:10px;overflow-x:auto;min-height:calc(100vh - 84px);align-items:flex-start}
+.zcol{flex:0 0 220px;background:#0d1320;border:1px solid #1a2540;border-radius:5px;overflow:hidden}
+.zhdr{display:flex;align-items:center;justify-content:space-between;padding:7px 11px;background:#0a101c;border-bottom:1px solid #1a2540}
+.zname{font-size:.72em;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#64748b}
+.zbadge{font-size:.68em;font-weight:700;background:#111827;color:#64748b;border-radius:10px;padding:1px 8px}
+.zcards{padding:7px;display:flex;flex-direction:column;gap:5px;min-height:50px}
+.card{background:#111827;border:1px solid #1a2540;border-left:3px solid #3b82f6;border-radius:4px;padding:9px 10px;opacity:0;transform:translateY(-6px);transition:opacity .25s,transform .25s,border-left-color .7s}
+.card.in{opacity:1;transform:translateY(0)}
+.card.out{opacity:0;transform:translateY(6px)}
+.chdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.cst{font-size:.62em;font-weight:800;letter-spacing:.07em}
+.czl{font-size:.62em;color:#334155;font-weight:600}
+.cline{font-size:.78em;font-weight:600;color:#94a3b8;margin-bottom:1px}
+.cpart{font-size:.85em;font-weight:700;color:#e2e8f0;margin-bottom:5px}
+.csep{height:1px;background:#1a2540;margin:4px 0}
+.cmeta{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.cmeta span{font-size:.7em;font-family:monospace;color:#475569}
+.celap{color:#94a3b8!important;font-weight:700}
+.cbar{height:3px;background:#1a2540;border-radius:2px;margin-top:2px;overflow:hidden}
+.cbarf{height:3px;border-radius:2px;width:0%;transition:width 1s linear,background .7s}
+.card[data-s=claimed] .cst{color:#34d399}
+.card[data-s=timeout] .cst{color:#f87171}
+.card[data-s=urgent] .cst{color:#fbbf24}
+.card[data-s=active] .cst{color:#60a5fa}
+.card[data-s=claimed] .celap{color:#34d399!important}
+.card[data-s=timeout] .celap{color:#f87171!important}
+.zempty{font-size:.72em;color:#1e2d45;text-align:center;padding:18px 0;font-style:italic}
+nav{display:flex;border-top:1px solid #1a2540;background:#080b12}
+nav a{font-size:.75em;color:#475569;text-decoration:none;padding:8px 13px;transition:color .2s}
+nav a:hover{color:#cbd5e1}
 </style></head><body>
-<h1>&#128230; MMCall Collector Dashboard</h1>
-<p>AP: <strong>MMCall-Collector</strong> &nbsp; IP: <strong>192.168.4.1</strong> &nbsp; <span id="ts"></span></p>
-<div class="stats">
-  <div class="stat"><span id="s-active">0</span>Active</div>
-  <div class="stat"><span id="s-urgent">0</span>Urgent</div>
-  <div class="stat"><span id="s-claimed">0</span>Claimed</div>
-  <div class="stat"><span id="s-timed">0</span>Timed&nbsp;Out</div>
-  <div class="stat"><span id="s-peers">0</span>Peers</div>
+<header>
+<div class="brand"><span class="logo">MMCall</span><span class="ld" id="ld"></span></div>
+<div class="pills">
+<span class="pill pa" id="pa">0 Active</span>
+<span class="pill pu" id="pu">0 Urgent</span>
+<span class="pill pc" id="pc">0 Claimed</span>
+<span class="pill pt" id="pt">0 Timed Out</span>
+<span class="pill pp" id="pp">0 Peers</span>
 </div>
-<table>
-<thead><tr><th>Zone</th><th>Line</th><th>Part</th><th>Ordered</th><th>Elapsed</th><th>Status</th></tr></thead>
-<tbody id="tbody"></tbody>
-</table>
-<p style="margin-top:12px">
-<a href="/settings">&#9881; Settings &amp; Parts Config</a> &nbsp;|&nbsp;
-<a href="/mesh">&#128246; Mesh Status</a> &nbsp;|&nbsp;
-<a href="/debug">&#128187; Debug Console</a> &nbsp;|&nbsp;
-<a href="/history">&#128203; Shift History</a>
-</p>
+<span id="clk">--:--:--</span>
+</header>
+<div id="kb"><div class="zempty" style="align-self:center;flex:1;font-size:.9em;padding:60px">Waiting for orders&hellip;</div></div>
+<nav>
+<a href="/settings">&#9881; Settings</a>
+<a href="/mesh">&#x1F4E1; Mesh</a>
+<a href="/debug">&#x1F4BB; Debug</a>
+<a href="/history">&#x1F4CB; History</a>
+</nav>
 <script>
-var TIMEOUT_MIN = 45;
-function pct(elapsed) {
-  var parts = elapsed.split(/[hms ]+/).filter(Boolean);
-  var mins = 0, secs = 0;
-  if (parts.length >= 2) { mins = parseInt(parts[0]); secs = parseInt(parts[1]); }
-  else if (elapsed.indexOf('m') < 0) secs = parseInt(parts[0]);
-  return Math.min(100, ((mins * 60 + secs) / (TIMEOUT_MIN * 60)) * 100);
+const TS=2700,cm=new Map(),zm=new Map();let fails=0;
+const lerp=(a,b,t)=>{
+  const ah=parseInt(a.slice(1),16),bh=parseInt(b.slice(1),16);
+  const ar=(ah>>16)&255,ag=(ah>>8)&255,ab=ah&255;
+  const br=(bh>>16)&255,bg=(bh>>8)&255,bb=bh&255;
+  return'#'+(((Math.round(ar+(br-ar)*t)<<16)|(Math.round(ag+(bg-ag)*t)<<8)|Math.round(ab+(bb-ab)*t)).toString(16).padStart(6,'0'));
+};
+const pc=p=>p<66.7?lerp('#3b82f6','#f59e0b',p/66.7):lerp('#f59e0b','#ef4444',(p-66.7)/33.3);
+const fmt=s=>s<60?s+'s':Math.floor(s/60)+'m '+(s%60<10?'0':'')+(s%60)+'s';
+const oid=o=>`${o.zone}|${o.lineID}|${o.part}`;
+function mkcard(){
+  const d=document.createElement('div');d.className='card';
+  d.innerHTML=`<div class="chdr"><span class="cst" data-cst></span><span class="czl" data-czl></span></div><div class="cline" data-cline></div><div class="cpart" data-cpart></div><div class="csep"></div><div class="cmeta"><span data-cord></span><span class="celap" data-cel></span></div><div class="cbar"><div class="cbarf" data-cbar></div></div>`;
+  return d;
 }
-function barColor(p) {
-  if (p < 50) return '#4caf50';
-  if (p < 75) return '#ff9800';
-  return '#f44336';
+function paint(el,o,sec){
+  const pct=Math.min(100,sec/TS*100);
+  const col=o.timedOut?'#dc2626':o.claimed?'#34d399':pc(pct);
+  el.dataset.s=o.timedOut?'timeout':o.claimed?'claimed':o.priority?'urgent':'active';
+  el.querySelector('[data-cst]').textContent=o.timedOut?'TIMED OUT':o.claimed?'CLAIMED':o.priority?'URGENT':'ACTIVE';
+  el.querySelector('[data-czl]').textContent='Z'+o.zone;
+  el.querySelector('[data-cline]').textContent=o.lineID;
+  el.querySelector('[data-cpart]').textContent=o.part;
+  el.querySelector('[data-cord]').textContent=o.timeOrdered;
+  el.querySelector('[data-cel]').textContent=fmt(sec);
+  const bar=el.querySelector('[data-cbar]');
+  bar.style.width=pct+'%';bar.style.background=col;
+  el.style.borderLeftColor=col;
 }
-function rowClass(o, p) {
-  if (o.timedOut) return 'timedout';
-  if (o.claimed)  return 'claimed';
-  if (o.priority) return 'urgent';
-  if (p >= 75)    return 'danger';
-  if (p >= 50)    return 'warn';
-  return 'active';
+function gzone(z){
+  if(zm.has(z))return zm.get(z);
+  const c=document.createElement('div');c.className='zcol';c.dataset.z=z;
+  c.innerHTML=`<div class="zhdr"><span class="zname">Zone ${z}</span><span class="zbadge" data-cnt>0</span></div><div class="zcards" data-cc></div>`;
+  const kb=document.getElementById('kb');
+  const emp=kb.querySelector('.zempty[style]');if(emp)kb.removeChild(emp);
+  const cs=[...kb.querySelectorAll('.zcol')];
+  const af=cs.find(x=>+x.dataset.z>z);
+  af?kb.insertBefore(c,af):kb.appendChild(c);
+  zm.set(z,c);return c;
 }
-function refresh(){
-  fetch('/api/active').then(r=>r.json()).then(d=>{
-    var a=0,u=0,c=0,t=0;
-    var rows='';
-    d.orders.forEach(o=>{
-      var p = pct(o.elapsed);
-      var cls = rowClass(o, p);
-      var statusLabel = o.timedOut ? '&#9888; TIMED OUT' : o.claimed ? '&#10003; Claimed' : (o.priority ? '&#9888; URGENT' : '&#9679; Active');
-      var bar = '';
-      if (!o.claimed && !o.timedOut) {
-        bar = '<div class="timer-bar"><div class="timer-fill" style="width:'+p+'%;background:'+barColor(p)+'"></div></div>';
-      }
-      rows += '<tr class="'+cls+'"><td>Zone '+o.zone+'</td><td>'+o.lineID+'</td><td>'+o.part+'</td><td>'+o.timeOrdered+'</td><td>'+o.elapsed+bar+'</td><td>'+statusLabel+'</td></tr>';
-      if (!o.claimed && !o.timedOut) { a++; if(o.priority) u++; }
-      if (o.claimed) c++; if (o.timedOut) t++;
-    });
-    document.getElementById('tbody').innerHTML = rows || '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">No active orders</td></tr>';
-    document.getElementById('s-active').textContent=a;
-    document.getElementById('s-urgent').textContent=u;
-    document.getElementById('s-claimed').textContent=c;
-    document.getElementById('s-timed').textContent=t;
-    document.getElementById('s-peers').textContent=d.peers||0;
-    document.getElementById('ts').textContent='Updated '+new Date().toLocaleTimeString();
+function recon(data){
+  const inc=new Map(data.orders.map(o=>[oid(o),o]));
+  cm.forEach((e,id)=>{if(!inc.has(id)&&!e.rm){
+    e.rm=true;e.el.classList.add('out');
+    setTimeout(()=>{e.el.parentNode&&e.el.parentNode.removeChild(e.el);cm.delete(id);},280);
+  }});
+  data.orders.forEach(o=>{
+    const id=oid(o),now=Date.now();
+    if(!cm.has(id)){
+      const col=gzone(o.zone),el=mkcard();
+      col.querySelector('[data-cc]').appendChild(el);
+      cm.set(id,{el,elapsedSec:o.elapsedSec,arrMs:now,frozen:o.frozen,rm:false});
+      paint(el,o,o.elapsedSec);
+      requestAnimationFrame(()=>el.classList.add('in'));
+    }else{
+      const e=cm.get(id);if(e.rm)return;
+      const sec=e.frozen?e.elapsedSec:e.elapsedSec+Math.floor((now-e.arrMs)/1000);
+      e.elapsedSec=o.elapsedSec;e.arrMs=now;e.frozen=o.frozen;
+      paint(e.el,o,sec);
+    }
+  });
+  const zc=new Map();
+  cm.forEach(e=>{if(e.rm||!e.el.isConnected)return;const zn=e.el.closest('[data-z]');if(zn)zc.set(+zn.dataset.z,(zc.get(+zn.dataset.z)||0)+1);});
+  zm.forEach((col,z)=>{
+    const n=zc.get(z)||0;col.querySelector('[data-cnt]').textContent=n;
+    const cc=col.querySelector('[data-cc]');const em=cc.querySelector('.zempty');
+    if(n===0&&!em){const e2=document.createElement('div');e2.className='zempty';e2.textContent='No active orders';cc.appendChild(e2);}
+    else if(n>0&&em)cc.removeChild(em);
+  });
+  let a=0,u=0,c=0,t=0;
+  data.orders.forEach(o=>{if(o.timedOut)t++;else if(o.claimed)c++;else{a++;if(o.priority)u++;}});
+  document.getElementById('pa').textContent=a+' Active';
+  document.getElementById('pu').textContent=u+' Urgent';
+  document.getElementById('pc').textContent=c+' Claimed';
+  document.getElementById('pt').textContent=t+' Timed Out';
+  document.getElementById('pp').textContent=(data.peers||0)+' Peers';
+}
+function tick(){
+  cm.forEach(e=>{
+    if(e.frozen||e.rm||!e.el.isConnected)return;
+    const sec=e.elapsedSec+Math.floor((Date.now()-e.arrMs)/1000);
+    const pct=Math.min(100,sec/TS*100);const col=pc(pct);
+    e.el.querySelector('[data-cel]').textContent=fmt(sec);
+    const bar=e.el.querySelector('[data-cbar]');
+    bar.style.width=pct+'%';bar.style.background=col;
+    e.el.style.borderLeftColor=col;
   });
 }
-setInterval(refresh,2000); refresh();
-</script>
-</body></html>
+function go(){fetch('/api/active').then(r=>r.json()).then(d=>{fails=0;document.getElementById('ld').className='ld live';recon(d);}).catch(()=>{fails++;if(fails>=3)document.getElementById('ld').className='ld stale';});}
+function clk(){const n=new Date();document.getElementById('clk').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');}
+setInterval(go,2000);setInterval(tick,1000);setInterval(clk,1000);go();clk();
+</script></body></html>
 )rawliteral";
 
 const char* settingsHTML PROGMEM = R"rawliteral(
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Settings</title>
-<style>body{font-family:sans-serif;margin:20px;max-width:720px}
-.card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:16px;margin-bottom:16px}
-h2{margin-top:0}label{display:block;font-weight:bold;margin-top:8px}
-input,textarea,select{padding:5px;border:1px solid #ccc;border-radius:4px;margin:3px 0}
-input[type=submit]{background:#1976d2;color:#fff;border:none;padding:8px 18px;border-radius:4px;cursor:pointer}
-table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:6px;font-size:.88em}
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Settings – MMCall</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:16px;max-width:760px}
+h1{font-size:1.15em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#f1f5f9;margin-bottom:14px}
+h2{font-size:.8em;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:10px}
+.card{background:#111827;border:1px solid #1a2540;border-radius:5px;padding:14px;margin-bottom:10px}
+label{display:block;font-size:.8em;font-weight:600;color:#64748b;margin:8px 0 3px}
+input,textarea{background:#0c0f18;color:#e2e8f0;border:1px solid #1a2540;border-radius:4px;padding:6px 9px;font-size:.82em}
+textarea{width:100%;resize:vertical}
+input[type=submit]{background:#0d1f38;color:#60a5fa;border:1px solid #1a3a6a;padding:7px 16px;border-radius:4px;cursor:pointer;font-size:.8em;font-weight:700;margin-top:8px}
+input[type=submit]:hover{background:#132d52}
+table{border-collapse:collapse;width:100%;font-size:.8em}
+td,th{border:1px solid #1a2540;padding:6px 9px;text-align:left}
+th{background:#0a101c;color:#64748b;font-weight:700}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+a{color:#60a5fa;text-decoration:none;font-size:.82em}
+.sub{font-size:.75em;color:#334155;margin:4px 0 8px}
 </style></head><body>
-<h1>&#9881; Collector Settings</h1>
-
+<h1>&#9881; Settings</h1>
 <div class="card">
-<h2>&#128246; Detected Devices (auto-discovered from mesh)</h2>
+<h2>&#x1F4E1; Detected Devices</h2>
 %DEVICE_TABLE%
-<p style="font-size:.85em;color:#666">Devices appear automatically when they send a heartbeat. Use the form below to push a new parts list to any zone.</p>
+<p class="sub">Devices appear automatically from heartbeats.</p>
 </div>
-
 <div class="card">
-<h2>&#128230; Configure Parts for Zone</h2>
+<h2>&#x1F4E6; Configure Parts for Zone</h2>
 <form action="/api/config" method="post">
-<label>Target Zone(s) (comma separated):</label>
-<input name="zones" placeholder="1,2,3" size="20">
-<label>Parts JSON:</label>
-<textarea name="parts" rows="3" cols="55">["Pod Pickup","Empty Cart","Maintenance","Supervisor"]</textarea>
-<br><br>
+<label>Target Zone(s) (comma-separated)</label>
+<input name="zones" placeholder="1,2,3" size="16">
+<label>Parts JSON</label>
+<textarea name="parts" rows="3">["Pod Pickup","Empty Cart","Maintenance","Supervisor"]</textarea>
 <input type="submit" value="Send Parts Config">
 </form>
 </div>
-
 <div class="card">
-<h2>&#128270; Mesh Tools</h2>
-<form action="/api/catchup" method="post" style="display:inline">
-<input type="submit" value="Rebroadcast All Active Orders">
-</form>
-&nbsp;
-<form action="/api/timesync" method="post" style="display:inline">
-<input type="submit" value="Broadcast Time Sync">
-</form>
-&nbsp;
-<form action="/api/clear_claimed" method="post" style="display:inline">
-<input type="submit" value="Archive &amp; Clear Claimed/Timed">
-</form>
+<h2>&#x1F50D; Mesh Tools</h2>
+<div class="row">
+<form action="/api/catchup" method="post"><input type="submit" value="Rebroadcast Orders"></form>
+<form action="/api/timesync" method="post"><input type="submit" value="Broadcast Time Sync"></form>
+<form action="/api/clear_claimed" method="post"><input type="submit" value="Archive &amp; Clear Claimed"></form>
 </div>
-
+</div>
 <div class="card">
-<h2>&#128246; WiFi Client (for NTP time sync)</h2>
-<p style="font-size:.85em;color:#666">Collector connects to your warehouse WiFi to sync real time via NTP. Time is then broadcast to all devices in the mesh.</p>
+<h2>&#x1F310; WiFi Client (NTP)</h2>
+<p class="sub">Connect to warehouse WiFi to sync real time via NTP, then broadcast to all devices.</p>
 <form action="/api/setwifi" method="post">
-<label>WiFi SSID:</label><input name="ssid" size="30" placeholder="WarehouseWiFi">
-<label>Password:</label><input name="pass" type="password" size="30">
-<br><br><input type="submit" value="Save &amp; Reconnect on Next Boot">
+<label>SSID</label><input name="ssid" size="26" placeholder="WarehouseWiFi">
+<label>Password</label><input name="pass" type="password" size="26">
+<input type="submit" value="Save &amp; Reconnect Next Boot">
 </form>
 </div>
-
 <div class="card">
-<h2>&#128225; Push WiFi OTA to All Mesh Devices</h2>
-<p style="font-size:.85em;color:#666">Sends WiFi credentials over LoRa mesh so Tuggers and Line Devices can receive OTA updates wirelessly. SSID and password must be 19 chars or less.</p>
+<h2>&#x1F4E1; Push WiFi OTA to Mesh</h2>
+<p class="sub">Sends credentials over LoRa so Tuggers and Line Devices can receive OTA updates. Max 19 chars each.</p>
 <form action="/api/pushwifi" method="post">
-<label>WiFi SSID (max 19 chars):</label><input name="ssid" size="20" placeholder="WarehouseWiFi">
-<label>Password (max 19 chars):</label><input name="pass" type="password" size="20">
-<br><br><input type="submit" value="Push Credentials to All Devices">
+<label>SSID (max 19 chars)</label><input name="ssid" size="20" placeholder="WarehouseWiFi">
+<label>Password (max 19 chars)</label><input name="pass" type="password" size="20">
+<input type="submit" value="Push Credentials to All Devices">
 </form>
 </div>
-
-<p><a href="/">&#8592; Dashboard</a> &nbsp;|&nbsp; <a href="/debug">&#128187; Debug Console</a></p>
+<p style="margin-top:12px"><a href="/">&#8592; Dashboard</a> &nbsp;|&nbsp; <a href="/debug">&#x1F4BB; Debug</a></p>
 </body></html>
 )rawliteral";
 
 const char* meshHTML PROGMEM = R"rawliteral(
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Mesh Status</title>
-<style>body{font-family:sans-serif;margin:20px}
-table{border-collapse:collapse;width:100%}
-th,td{border:1px solid #ddd;padding:8px;font-size:.88em}
-th{background:#37474f;color:#fff}
-.line{background:#e8f5e9}.tug{background:#e3f2fd}</style></head><body>
-<h1>&#128246; Mesh Network Status</h1>
-<table>
-<thead><tr><th>Type</th><th>Label</th><th>Zone</th><th>RSSI</th><th>Hops</th><th>Last Seen</th></tr></thead>
-<tbody id="tbody"></tbody>
-</table>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mesh – MMCall</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:16px}
+h1{font-size:1.15em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#f1f5f9;margin-bottom:14px}
+.grid{display:flex;flex-wrap:wrap;gap:8px}
+.peer{background:#111827;border:1px solid #1a2540;border-left:3px solid;border-radius:5px;padding:11px 14px;min-width:180px}
+.peer.line{border-left-color:#34d399}
+.peer.tug{border-left-color:#60a5fa}
+.ptype{font-size:.62em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+.peer.line .ptype{color:#34d399}
+.peer.tug .ptype{color:#60a5fa}
+.plabel{font-size:.88em;font-weight:700;color:#e2e8f0;margin-bottom:6px}
+.pmeta{font-size:.72em;color:#475569;font-family:monospace}
+.pmeta div{margin-bottom:2px}
+#empty{font-size:.85em;color:#334155;padding:30px 0;font-style:italic}
+a{color:#60a5fa;text-decoration:none;font-size:.82em}
+</style></head><body>
+<h1>&#x1F4E1; Mesh Network</h1>
+<div class="grid" id="g"><div id="empty">Loading&hellip;</div></div>
+<p style="margin-top:14px"><a href="/">&#8592; Dashboard</a></p>
 <script>
 fetch('/api/mesh').then(r=>r.json()).then(d=>{
-  var rows='';
-  d.peers.forEach(p=>{
-    var cls=p.isLine?'line':'tug';
-    var type=p.isLine?'Line Device':'Tugger/Other';
-    rows+=`<tr class="${cls}"><td>${type}</td><td>${p.label}</td><td>Zone ${p.zone}</td><td>${p.rssi} dBm</td><td>${p.hops}</td><td>${p.ago}s ago</td></tr>`;
-  });
-  document.getElementById('tbody').innerHTML=rows||'<tr><td colspan="6" style="text-align:center">No peers</td></tr>';
+  const g=document.getElementById('g'),emp=document.getElementById('empty');
+  if(d.peers&&d.peers.length){
+    if(emp)g.removeChild(emp);
+    d.peers.forEach(p=>{
+      const div=document.createElement('div');div.className='peer '+(p.isLine?'line':'tug');
+      div.innerHTML=`<div class="ptype">${p.isLine?'Line Device':'Tugger'}</div><div class="plabel">${p.label}</div><div class="pmeta"><div>Zone ${p.zone}</div><div>${p.rssi} dBm &nbsp; ${p.hops} hops</div><div>${p.ago}s ago</div></div>`;
+      g.appendChild(div);});
+  }else if(emp)emp.textContent='No peers detected';
 });
-</script>
-<p><a href="/">&#8592; Dashboard</a></p>
-</body></html>
+</script></body></html>
 )rawliteral";
 
 const char* historyHTML PROGMEM = R"rawliteral(
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Shift History</title>
-<style>body{font-family:sans-serif;margin:20px}
-table{border-collapse:collapse;width:100%}
-th,td{border:1px solid #ddd;padding:8px;font-size:.88em}th{background:#37474f;color:#fff}
-.ok{color:green}.late{color:red}</style></head><body>
-<h1>&#128203; Shift History</h1>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>History – MMCall</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:16px}
+h1{font-size:1.15em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#f1f5f9;margin-bottom:14px}
+table{border-collapse:collapse;width:100%;background:#111827;border:1px solid #1a2540;border-radius:5px;overflow:hidden}
+th{background:#0a101c;color:#64748b;font-size:.72em;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:8px 10px;text-align:left}
+td{border-top:1px solid #1a2540;padding:7px 10px;font-size:.82em}
+.ok td:last-child{color:#34d399;font-weight:700}
+.late td:last-child{color:#f87171;font-weight:700}
+input[type=submit]{background:#1a0505;color:#f87171;border:1px solid #4a0f0f;padding:7px 14px;border-radius:4px;cursor:pointer;font-size:.8em;font-weight:700;margin-top:12px}
+input[type=submit]:hover{background:#2d0a0a}
+a{color:#60a5fa;text-decoration:none;font-size:.82em}
+.empty{text-align:center;color:#1e2d45;padding:30px;font-style:italic;font-size:.85em}
+</style></head><body>
+<h1>&#x1F4CB; Shift History</h1>
 <table>
-<thead><tr><th>Line</th><th>Part</th><th>Zone</th><th>Ordered</th><th>Response Time</th><th>Result</th></tr></thead>
-<tbody id="tbody"></tbody>
+<thead><tr><th>Line</th><th>Part</th><th>Zone</th><th>Ordered</th><th>Response</th><th>Result</th></tr></thead>
+<tbody id="tb"></tbody>
 </table>
-<form action="/api/clear_history" method="post" style="margin-top:12px">
-<input type="submit" value="Clear History" style="padding:6px 14px">
-</form>
-<p><a href="/">&#8592; Dashboard</a></p>
+<form action="/api/clear_history" method="post"><input type="submit" value="Clear History"></form>
+<p style="margin-top:12px"><a href="/">&#8592; Dashboard</a></p>
 <script>
 fetch('/api/history').then(r=>r.json()).then(d=>{
-  var rows='';
-  d.history.forEach(h=>{
-    var cls=h.claimed?'ok':'late';
-    var res=h.claimed?'&#10003; Claimed':'&#9888; Timed Out';
-    rows+=`<tr><td>${h.lineID}</td><td>${h.part}</td><td>Zone ${h.zone}</td><td>${h.timeOrdered}</td><td>${h.elapsed}</td><td class="${cls}">${res}</td></tr>`;
-  });
-  document.getElementById('tbody').innerHTML=rows||'<tr><td colspan="6" style="text-align:center">No history</td></tr>';
+  const tb=document.getElementById('tb');
+  if(!d.history||!d.history.length){tb.innerHTML='<tr><td colspan="6" class="empty">No history this shift</td></tr>';return;}
+  tb.innerHTML=d.history.map(h=>`<tr class="${h.claimed?'ok':'late'}"><td>${h.lineID}</td><td>${h.part}</td><td>Z${h.zone}</td><td>${h.timeOrdered}</td><td>${h.elapsed}</td><td>${h.claimed?'&#10003; Claimed':'&#9888; Timed Out'}</td></tr>`).join('');
 });
-</script>
-</body></html>
+</script></body></html>
 )rawliteral";
 
 // ============================================================
@@ -805,12 +887,17 @@ void setupWebServer() {
             o["zone"]        = activeOrders[i].zone;
             o["priority"]    = activeOrders[i].priority;
             o["timeOrdered"] = activeOrders[i].timeOrdered;
-            unsigned long elapsed = (millis() - activeOrders[i].timestamp) / 1000;
-            o["elapsed"] = String(elapsed / 60) + "m " + String(elapsed % 60) + "s";
-            o["status"]  = activeOrders[i].claimed  ? "Claimed" :
-                           activeOrders[i].timedOut ? "TIMED OUT" : "Active";
             o["claimed"]  = activeOrders[i].claimed;
             o["timedOut"] = activeOrders[i].timedOut;
+            o["frozen"]   = (activeOrders[i].claimed || activeOrders[i].timedOut);
+            unsigned long elapsed;
+            if (activeOrders[i].claimed && activeOrders[i].claimedAt > 0)
+                elapsed = (activeOrders[i].claimedAt - activeOrders[i].timestamp) / 1000;
+            else if (activeOrders[i].timedOut)
+                elapsed = 45UL * 60;
+            else
+                elapsed = (millis() - activeOrders[i].timestamp) / 1000;
+            o["elapsedSec"] = elapsed;
         }
         String js; serializeJson(doc, js);
         server.send(200, "application/json", js);
@@ -1065,66 +1152,58 @@ void setupWebServer() {
 
     // /debug — live web debug console
     server.on("/debug", []() {
-        server.send(200, "text/html", R"rawliteral(<!DOCTYPE html><html><head>
-<meta charset="utf-8"><title>MMCall Debug</title>
+        server.send(200, "text/html", R"rawliteral(<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8"><title>Debug – MMCall</title>
 <style>
-body{font-family:monospace;background:#111;color:#0f0;margin:0;padding:10px}
-h2{color:#fff;margin:0 0 8px}
-#log{height:60vh;overflow-y:auto;background:#000;padding:8px;border:1px solid #333;font-size:13px;white-space:pre-wrap}
-.tag-CALL{color:#0f0}.tag-CLAIM{color:#0ff}.tag-NTP{color:#ff0}
-.tag-BOOT{color:#f80}.tag-TIMEOUT{color:#f44}.tag-REMOTE{color:#a0f}
-.tag-OTA{color:#08f}.tag-CFG{color:#fa0}.tag-default{color:#aaa}
-.panel{display:flex;gap:10px;margin:8px 0;flex-wrap:wrap}
-.btn{background:#222;color:#0f0;border:1px solid #0f0;padding:6px 12px;cursor:pointer;border-radius:3px;font-family:monospace}
-.btn:hover{background:#0f0;color:#000}
-input{background:#111;color:#0f0;border:1px solid #333;padding:4px 8px;font-family:monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:10px}
+h2{font-size:1em;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#f1f5f9;margin-bottom:8px}
+#log{height:58vh;overflow-y:auto;background:#060913;padding:8px;border:1px solid #1a2540;border-radius:4px;font-size:12px;font-family:monospace;white-space:pre-wrap;margin-bottom:8px}
+.tCALL{color:#f59e0b}.tCLAIM{color:#34d399}.tNTP{color:#60a5fa}
+.tBOOT{color:#a78bfa}.tTIMEOUT{color:#f87171}.tREMOTE{color:#f0abfc}
+.tOTA{color:#38bdf8}.tCFG{color:#4ade80}.tINJECT{color:#fbbf24}.tdef{color:#64748b}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;align-items:center}
+.btn{background:#0d1f38;color:#60a5fa;border:1px solid #1a3a6a;padding:5px 11px;cursor:pointer;border-radius:4px;font-size:.78em;font-weight:700;font-family:inherit}
+.btn:hover{background:#132d52}
+.btn.warn{background:#1a0505;color:#f87171;border-color:#4a0f0f}
+.btn.warn:hover{background:#2d0a0a}
+input{background:#0c0f18;color:#e2e8f0;border:1px solid #1a2540;border-radius:4px;padding:5px 8px;font-size:.78em;font-family:monospace}
+#st{font-size:.72em;color:#334155;margin-left:4px}
+a{color:#60a5fa;font-size:.78em;text-decoration:none}
 </style></head><body>
-<h2>&#x1F4E1; MMCall Debug Console</h2>
-<div class="panel">
-  <button class="btn" onclick="inject({cmd:'catchup'})">Force Catchup</button>
-  <button class="btn" onclick="inject({cmd:'timesync'})">Force TimeSync</button>
-  <button class="btn" onclick="inject({cmd:'status'}).then(r=>r.json()).then(d=>alert(JSON.stringify(d,null,2)))">Device Status</button>
-  <button class="btn" onclick="if(confirm('Wipe NVS and reboot?'))inject({cmd:'wipe'})">Wipe NVS + Reboot</button>
+<h2>&#x1F4E1; Debug Console</h2>
+<div class="row">
+  <button class="btn" onclick="inj({cmd:'catchup'})">Force Catchup</button>
+  <button class="btn" onclick="inj({cmd:'timesync'})">Force TimeSync</button>
+  <button class="btn" onclick="inj({cmd:'status'}).then(r=>r.json()).then(d=>alert(JSON.stringify(d,null,2)))">Status</button>
+  <button class="btn warn" onclick="if(confirm('Wipe NVS and reboot?'))inj({cmd:'wipe'})">Wipe + Reboot</button>
 </div>
-<div class="panel">
-  <input id="zone" placeholder="Zone" value="1" style="width:50px">
-  <input id="item" placeholder="Line|Part" value="TestLine|Pod Pickup">
-  <button class="btn" onclick="inject({cmd:'call',zone:+id('zone').value,item:id('item').value})">Inject Call</button>
-  <button class="btn" onclick="inject({cmd:'claim',item:id('item').value})">Inject Claim</button>
-</div>
-<div class="panel">
+<div class="row">
+  <input id="zn" value="1" style="width:44px" placeholder="Z">
+  <input id="it" value="TestLine|Pod Pickup" style="width:180px">
+  <button class="btn" onclick="inj({cmd:'call',zone:+g('zn').value,item:g('it').value})">Inject Call</button>
+  <button class="btn" onclick="inj({cmd:'claim',item:g('it').value})">Inject Claim</button>
   <button class="btn" onclick="clearLog()">Clear</button>
-  <span id="status" style="color:#888;align-self:center;font-size:12px"></span>
+  <span id="st"></span>
 </div>
 <div id="log"></div>
+<div style="margin-top:6px"><a href="/">&#8592; Dashboard</a></div>
 <script>
-var lastTotal=0;
-function id(x){return document.getElementById(x)}
-function colorLine(msg){
-  var m=msg.match(/^\[(\w+)(?::\w+)?\]/);
-  var cls=m?('tag-'+m[1]):'tag-default';
-  return '<span class="'+cls+'">'+msg.replace(/</g,'&lt;')+'</span>';
-}
+var last=0;
+function g(x){return document.getElementById(x)}
+function cl(msg){var m=msg.match(/^\[(\w+)/);var t=m?m[1]:'def';return '<span class="t'+t+'">'+msg.replace(/</g,'&lt;')+'</span>';}
 function pad(n){return n<10?'0'+n:n}
-function ts(ms){var s=Math.floor(ms/1000);return pad(Math.floor(s/3600)%24+':'+pad(Math.floor(s/60)%60)+':'+pad(s%60));}
-function poll(){
-  fetch('/api/log').then(r=>r.json()).then(d=>{
-    if(d.total!==lastTotal){
-      var div=id('log');
-      var atBottom=div.scrollTop+div.clientHeight>=div.scrollHeight-20;
-      var html='';
-      d.entries.forEach(function(e){html+=ts(e.ms)+' '+colorLine(e.msg)+'\n';});
-      div.innerHTML=html;
-      if(atBottom)div.scrollTop=div.scrollHeight;
-      lastTotal=d.total;
-      id('status').textContent='Updated '+new Date().toLocaleTimeString()+' ('+d.total+' total)';
-    }
-  }).catch(function(){id('status').textContent='Connection lost';});
-}
-function inject(cmd){
-  return fetch('/api/inject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cmd)});
-}
-function clearLog(){id('log').innerHTML='';lastTotal=0;}
+function ts(ms){var s=Math.floor(ms/1000);return pad(Math.floor(s/3600)%24)+':'+pad(Math.floor(s/60)%60)+':'+pad(s%60);}
+function poll(){fetch('/api/log').then(r=>r.json()).then(d=>{
+  if(d.total!==last){
+    var div=g('log'),ab=div.scrollTop+div.clientHeight>=div.scrollHeight-20;
+    var h='';d.entries.forEach(e=>{h+=ts(e.ms)+' '+cl(e.msg)+'\n';});
+    div.innerHTML=h;if(ab)div.scrollTop=div.scrollHeight;
+    last=d.total;g('st').textContent=new Date().toLocaleTimeString()+' ('+d.total+')';
+  }
+}).catch(()=>{g('st').textContent='offline';});}
+function inj(c){return fetch('/api/inject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});}
+function clearLog(){g('log').innerHTML='';last=0;}
 setInterval(poll,1500);poll();
 </script></body></html>)rawliteral");
     });
