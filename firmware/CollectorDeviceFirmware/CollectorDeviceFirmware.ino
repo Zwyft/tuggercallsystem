@@ -428,34 +428,40 @@ void broadcastCatchup() {
     LOG("CATCHUP", "Sent %d orders", sent);
 }
 
+// For PKT_CONFIG, item[0..3] carries an optional unicast destID (0 = zone broadcast).
+inline void     pktSetDest(MeshPacket& p, uint32_t id) { memcpy(p.item, &id, 4); }
+inline uint32_t pktGetDest(const MeshPacket& p)        { uint32_t id=0; memcpy(&id, p.item, 4); return id; }
+
 // Numeric overload — used for configKey 2 (zone), 4-8 (pins), 9-10 (OTA flags).
 // Line device reads configVal for these keys; configStr stays zeroed.
-void sendConfigPacket(uint8_t zone, uint8_t key, uint8_t val) {
+void sendConfigPacket(uint8_t zone, uint8_t key, uint8_t val, uint32_t destID = 0) {
     MeshPacket pkt; memset(&pkt, 0, sizeof(pkt));
     pkt.srcID = myDeviceID; pkt.seqNum = nextSeq();
-    pkt.type = PKT_CONFIG; pkt.route = zone;
+    pkt.type = PKT_CONFIG;
+    if (destID != 0) { pktSetDest(pkt, destID); pkt.route = 0; }
+    else              { pkt.route = zone; }
     pkt.ttl = getSmartTTL(); pkt.configKey = key;
     pkt.configVal = val;
     transmitMesh(&pkt);
 }
 
-void sendConfigPacket(uint8_t zone, uint8_t key, const String& val) {
+void sendConfigPacket(uint8_t zone, uint8_t key, const String& val, uint32_t destID = 0) {
     // NOTE: configStr is 20 bytes (19 usable). For key=3 (parts JSON), this means
     // parts lists must fit in 19 chars per packet. For longer lists, send each
     // part name as a separate PKT_CONFIG packet — the line device appends them.
     // Simple workaround: send individual part names, not a full JSON array.
+    auto applyDest = [&](MeshPacket& p) {
+        if (destID != 0) { pktSetDest(p, destID); p.route = 0; }
+        else              { p.route = zone; }
+    };
     if (key == 3 && val.length() > 19) {
-        // Parse and send each quoted string as an individual config packet
-        // so line device can build the list incrementally.
-        // First packet: key=3 with "[" signals start of new parts list
         MeshPacket start; memset(&start, 0, sizeof(start));
         start.srcID = myDeviceID; start.seqNum = nextSeq();
-        start.type  = PKT_CONFIG; start.route  = zone;
-        start.ttl   = getSmartTTL(); start.configKey = 3;
+        start.type = PKT_CONFIG; start.ttl = getSmartTTL(); start.configKey = 3;
+        applyDest(start);
         strncpy(start.configStr, "[", 19); start.configStr[19] = '\0';
         transmitMesh(&start);
         delay(80);
-        // Then send each item
         int i = 0, len = val.length();
         while (i < len) {
             int s = val.indexOf('"', i); if (s < 0) break;
@@ -463,20 +469,20 @@ void sendConfigPacket(uint8_t zone, uint8_t key, const String& val) {
             String item = val.substring(s + 1, e);
             MeshPacket pkt; memset(&pkt, 0, sizeof(pkt));
             pkt.srcID = myDeviceID; pkt.seqNum = nextSeq();
-            pkt.type  = PKT_CONFIG; pkt.route  = zone;
-            pkt.ttl   = getSmartTTL(); pkt.configKey = 30; // key 30 = append part
+            pkt.type = PKT_CONFIG; pkt.ttl = getSmartTTL(); pkt.configKey = 30;
+            applyDest(pkt);
             item.toCharArray(pkt.configStr, 19); pkt.configStr[19] = '\0';
             transmitMesh(&pkt);
             delay(80);
             i = e + 1;
         }
-        LOG("CFG", "Sent parts to zone %d", zone);
+        LOG("CFG", "Sent parts to %s", destID ? "device" : "zone");
         return;
     }
     MeshPacket pkt; memset(&pkt, 0, sizeof(pkt));
     pkt.srcID = myDeviceID; pkt.seqNum = nextSeq();
-    pkt.type = PKT_CONFIG; pkt.route = zone;
-    pkt.ttl = getSmartTTL(); pkt.configKey = key;
+    pkt.type = PKT_CONFIG; pkt.ttl = getSmartTTL(); pkt.configKey = key;
+    applyDest(pkt);
     val.toCharArray(pkt.configStr, sizeof(pkt.configStr));
     pkt.configStr[19] = '\0';
     transmitMesh(&pkt);
@@ -585,7 +591,7 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#08
 .pt{color:#f87171;background:#1a0505;border-color:#4a0f0f}
 .pp{color:#94a3b8;background:#111827;border-color:#1e2d45}
 #clk{font-size:.82em;font-family:monospace;color:#475569;flex-shrink:0}
-#kb{display:flex;gap:8px;padding:10px;overflow-x:auto;min-height:calc(100vh - 84px);align-items:flex-start}
+#kb{display:flex;gap:8px;padding:10px;overflow-x:auto;min-height:calc(100vh - 116px);align-items:flex-start}
 .zcol{flex:0 0 220px;background:#0d1320;border:1px solid #1a2540;border-radius:5px;overflow:hidden}
 .zhdr{display:flex;align-items:center;justify-content:space-between;padding:7px 11px;background:#0a101c;border-bottom:1px solid #1a2540}
 .zname{font-size:.72em;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#64748b}
@@ -612,10 +618,18 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#08
 .card[data-s=claimed] .celap{color:#34d399!important}
 .card[data-s=timeout] .celap{color:#f87171!important}
 .zempty{font-size:.72em;color:#1e2d45;text-align:center;padding:18px 0;font-style:italic}
-nav{display:flex;border-top:1px solid #1a2540;background:#080b12}
-nav a{font-size:.75em;color:#475569;text-decoration:none;padding:8px 13px;transition:color .2s}
+nav{display:flex;background:#080b12;border-bottom:2px solid #1a2540;overflow-x:auto}
+nav a{font-size:.75em;font-weight:600;color:#475569;text-decoration:none;padding:9px 15px;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .2s,border-color .2s}
 nav a:hover{color:#cbd5e1}
+nav a.act{color:#60a5fa;border-bottom-color:#3b82f6}
 </style></head><body>
+<nav>
+<a href="/" class="act">Dashboard</a>
+<a href="/settings">&#9881; Settings</a>
+<a href="/mesh">&#x1F4E1; Mesh</a>
+<a href="/debug">&#x1F4BB; Debug</a>
+<a href="/history">&#x1F4CB; History</a>
+</nav>
 <header>
 <div class="brand"><span class="logo">MMCall</span><span class="ld" id="ld"></span></div>
 <div class="pills">
@@ -628,12 +642,6 @@ nav a:hover{color:#cbd5e1}
 <span id="clk">--:--:--</span>
 </header>
 <div id="kb"><div class="zempty" style="align-self:center;flex:1;font-size:.9em;padding:60px">Waiting for orders&hellip;</div></div>
-<nav>
-<a href="/settings">&#9881; Settings</a>
-<a href="/mesh">&#x1F4E1; Mesh</a>
-<a href="/debug">&#x1F4BB; Debug</a>
-<a href="/history">&#x1F4CB; History</a>
-</nav>
 <script>
 const TS=2700,cm=new Map(),zm=new Map();let fails=0;
 const lerp=(a,b,t)=>{
@@ -733,7 +741,12 @@ const char* settingsHTML PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Settings – MMCall</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:16px;max-width:760px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0}
+nav{display:flex;background:#080b12;border-bottom:2px solid #1a2540;overflow-x:auto}
+nav a{font-size:.75em;font-weight:600;color:#475569;text-decoration:none;padding:9px 15px;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .2s,border-color .2s}
+nav a:hover{color:#cbd5e1}
+nav a.act{color:#60a5fa;border-bottom-color:#3b82f6}
+.pg{padding:16px;max-width:760px}
 h1{font-size:1.15em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#f1f5f9;margin-bottom:14px}
 h2{font-size:.8em;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:10px}
 .card{background:#111827;border:1px solid #1a2540;border-radius:5px;padding:14px;margin-bottom:10px}
@@ -743,12 +756,20 @@ textarea{width:100%;resize:vertical}
 input[type=submit]{background:#0d1f38;color:#60a5fa;border:1px solid #1a3a6a;padding:7px 16px;border-radius:4px;cursor:pointer;font-size:.8em;font-weight:700;margin-top:8px}
 input[type=submit]:hover{background:#132d52}
 table{border-collapse:collapse;width:100%;font-size:.8em}
-td,th{border:1px solid #1a2540;padding:6px 9px;text-align:left}
+td,th{border:1px solid #1a2540;padding:6px 9px;text-align:left;vertical-align:top}
 th{background:#0a101c;color:#64748b;font-weight:700}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
 a{color:#60a5fa;text-decoration:none;font-size:.82em}
 .sub{font-size:.75em;color:#334155;margin:4px 0 8px}
 </style></head><body>
+<nav>
+<a href="/">Dashboard</a>
+<a href="/settings" class="act">&#9881; Settings</a>
+<a href="/mesh">&#x1F4E1; Mesh</a>
+<a href="/debug">&#x1F4BB; Debug</a>
+<a href="/history">&#x1F4CB; History</a>
+</nav>
+<div class="pg">
 <h1>&#9881; Settings</h1>
 <div class="card">
 <h2>&#x1F4E1; Detected Devices</h2>
@@ -791,7 +812,7 @@ a{color:#60a5fa;text-decoration:none;font-size:.82em}
 <input type="submit" value="Push Credentials to All Devices">
 </form>
 </div>
-<p style="margin-top:12px"><a href="/">&#8592; Dashboard</a> &nbsp;|&nbsp; <a href="/debug">&#x1F4BB; Debug</a></p>
+</div>
 </body></html>
 )rawliteral";
 
@@ -799,7 +820,12 @@ const char* meshHTML PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mesh – MMCall</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:16px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0}
+nav{display:flex;background:#080b12;border-bottom:2px solid #1a2540;overflow-x:auto}
+nav a{font-size:.75em;font-weight:600;color:#475569;text-decoration:none;padding:9px 15px;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .2s,border-color .2s}
+nav a:hover{color:#cbd5e1}
+nav a.act{color:#60a5fa;border-bottom-color:#3b82f6}
+.pg{padding:16px}
 h1{font-size:1.15em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#f1f5f9;margin-bottom:14px}
 .grid{display:flex;flex-wrap:wrap;gap:8px}
 .peer{background:#111827;border:1px solid #1a2540;border-left:3px solid;border-radius:5px;padding:11px 14px;min-width:180px}
@@ -812,11 +838,17 @@ h1{font-size:1.15em;font-weight:800;letter-spacing:.08em;text-transform:uppercas
 .pmeta{font-size:.72em;color:#475569;font-family:monospace}
 .pmeta div{margin-bottom:2px}
 #empty{font-size:.85em;color:#334155;padding:30px 0;font-style:italic}
-a{color:#60a5fa;text-decoration:none;font-size:.82em}
 </style></head><body>
+<nav>
+<a href="/">Dashboard</a>
+<a href="/settings">&#9881; Settings</a>
+<a href="/mesh" class="act">&#x1F4E1; Mesh</a>
+<a href="/debug">&#x1F4BB; Debug</a>
+<a href="/history">&#x1F4CB; History</a>
+</nav>
+<div class="pg">
 <h1>&#x1F4E1; Mesh Network</h1>
 <div class="grid" id="g"><div id="empty">Loading&hellip;</div></div>
-<p style="margin-top:14px"><a href="/">&#8592; Dashboard</a></p>
 <script>
 fetch('/api/mesh').then(r=>r.json()).then(d=>{
   const g=document.getElementById('g'),emp=document.getElementById('empty');
@@ -828,14 +860,19 @@ fetch('/api/mesh').then(r=>r.json()).then(d=>{
       g.appendChild(div);});
   }else if(emp)emp.textContent='No peers detected';
 });
-</script></body></html>
+</script></div></body></html>
 )rawliteral";
 
 const char* historyHTML PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>History – MMCall</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:16px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0}
+nav{display:flex;background:#080b12;border-bottom:2px solid #1a2540;overflow-x:auto}
+nav a{font-size:.75em;font-weight:600;color:#475569;text-decoration:none;padding:9px 15px;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .2s,border-color .2s}
+nav a:hover{color:#cbd5e1}
+nav a.act{color:#60a5fa;border-bottom-color:#3b82f6}
+.pg{padding:16px}
 h1{font-size:1.15em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#f1f5f9;margin-bottom:14px}
 table{border-collapse:collapse;width:100%;background:#111827;border:1px solid #1a2540;border-radius:5px;overflow:hidden}
 th{background:#0a101c;color:#64748b;font-size:.72em;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:8px 10px;text-align:left}
@@ -844,23 +881,29 @@ td{border-top:1px solid #1a2540;padding:7px 10px;font-size:.82em}
 .late td:last-child{color:#f87171;font-weight:700}
 input[type=submit]{background:#1a0505;color:#f87171;border:1px solid #4a0f0f;padding:7px 14px;border-radius:4px;cursor:pointer;font-size:.8em;font-weight:700;margin-top:12px}
 input[type=submit]:hover{background:#2d0a0a}
-a{color:#60a5fa;text-decoration:none;font-size:.82em}
 .empty{text-align:center;color:#1e2d45;padding:30px;font-style:italic;font-size:.85em}
 </style></head><body>
+<nav>
+<a href="/">Dashboard</a>
+<a href="/settings">&#9881; Settings</a>
+<a href="/mesh">&#x1F4E1; Mesh</a>
+<a href="/debug">&#x1F4BB; Debug</a>
+<a href="/history" class="act">&#x1F4CB; History</a>
+</nav>
+<div class="pg">
 <h1>&#x1F4CB; Shift History</h1>
 <table>
 <thead><tr><th>Line</th><th>Part</th><th>Zone</th><th>Ordered</th><th>Response</th><th>Result</th></tr></thead>
 <tbody id="tb"></tbody>
 </table>
 <form action="/api/clear_history" method="post"><input type="submit" value="Clear History"></form>
-<p style="margin-top:12px"><a href="/">&#8592; Dashboard</a></p>
 <script>
 fetch('/api/history').then(r=>r.json()).then(d=>{
   const tb=document.getElementById('tb');
   if(!d.history||!d.history.length){tb.innerHTML='<tr><td colspan="6" class="empty">No history this shift</td></tr>';return;}
   tb.innerHTML=d.history.map(h=>`<tr class="${h.claimed?'ok':'late'}"><td>${h.lineID}</td><td>${h.part}</td><td>Z${h.zone}</td><td>${h.timeOrdered}</td><td>${h.elapsed}</td><td>${h.claimed?'&#10003; Claimed':'&#9888; Timed Out'}</td></tr>`).join('');
 });
-</script></body></html>
+</script></div></body></html>
 )rawliteral";
 
 // ============================================================
@@ -937,20 +980,30 @@ void setupWebServer() {
     server.on("/settings", []() {
         String page = String(settingsHTML);
         // Build auto-detected device table from neighbor table
-        String tbl = "<table><tr><th>Type</th><th>Label</th><th>Zone</th><th>RSSI</th><th>Last Seen</th><th>Push Parts</th></tr>";
+        String tbl = "<table><tr><th>Type</th><th>Label</th><th>Zone</th><th>RSSI</th><th>Seen</th><th>Send Parts</th></tr>";
         bool any = false;
         for (int i = 0; i < MAX_NEIGHBORS; i++) {
             if (!neighbors[i].lastSeen || millis() - neighbors[i].lastSeen > 300000UL) continue;
             unsigned long ago = (millis() - neighbors[i].lastSeen) / 1000;
             String type = neighbors[i].isLineDevice ? "Line" : "Tugger";
+            String partsCell;
+            if (neighbors[i].isLineDevice) {
+                // Per-device unicast — uses srcID so only this device gets the config
+                char idStr[12]; snprintf(idStr, sizeof(idStr), "%lu", (unsigned long)neighbors[i].srcID);
+                partsCell = "<form action='/api/config' method='post'>"
+                            "<input type='hidden' name='deviceID' value='" + String(idStr) + "'>"
+                            "<textarea name='parts' rows='2' style='width:160px;font-size:.75em'>"
+                            "[\"Pod Pickup\",\"Empty Cart\",\"Maintenance\",\"Supervisor\"]"
+                            "</textarea><br>"
+                            "<input type='submit' value='Send Parts'></form>";
+            } else {
+                partsCell = "<span style='color:#334155;font-size:.75em'>N/A</span>";
+            }
             tbl += "<tr><td>" + type + "</td><td>" + String(neighbors[i].label) +
                    "</td><td>Z" + String(neighbors[i].zone) +
                    "</td><td>" + String(neighbors[i].rssi) + " dBm</td>" +
-                   "<td>" + String(ago) + "s ago</td>" +
-                   "<td><form action='/api/config' method='post'>" +
-                   "<input type='hidden' name='zones' value='" + String(neighbors[i].zone) + "'>" +
-                   "<input type='hidden' name='parts' value='[\"Pod Pickup\",\"Empty Cart\"]'>" +
-                   "<input type='submit' value='Push'></form></td></tr>";
+                   "<td>" + String(ago) + "s</td>" +
+                   "<td>" + partsCell + "</td></tr>";
             any = true;
         }
         if (!any) tbl += "<tr><td colspan='6' style='color:#888'>No devices detected yet — waiting for heartbeats</td></tr>";
@@ -960,15 +1013,22 @@ void setupWebServer() {
     });
 
     server.on("/api/config", []() {
-        if (server.method() == HTTP_POST && server.hasArg("zones") && server.hasArg("parts")) {
-            String zonesStr = server.arg("zones");
+        if (server.method() == HTTP_POST && server.hasArg("parts")) {
             String partsJson = server.arg("parts");
-            int start = 0;
-            while (true) {
-                int comma = zonesStr.indexOf(',', start);
-                String zStr = (comma > 0) ? zonesStr.substring(start, comma) : zonesStr.substring(start);
-                if (zStr.length() > 0) sendConfigPacket(zStr.toInt(), 3, partsJson);
-                if (comma < 0) break; start = comma + 1;
+            if (server.hasArg("deviceID") && server.arg("deviceID").length() > 0) {
+                // Unicast: send to a specific device by its srcID
+                uint32_t destID = (uint32_t)strtoul(server.arg("deviceID").c_str(), nullptr, 10);
+                if (destID != 0) sendConfigPacket(0, 3, partsJson, destID);
+            } else if (server.hasArg("zones") && server.arg("zones").length() > 0) {
+                // Zone broadcast: send to all devices in the given zone(s)
+                String zonesStr = server.arg("zones");
+                int start = 0;
+                while (true) {
+                    int comma = zonesStr.indexOf(',', start);
+                    String zStr = (comma > 0) ? zonesStr.substring(start, comma) : zonesStr.substring(start);
+                    if (zStr.length() > 0) sendConfigPacket(zStr.toInt(), 3, partsJson);
+                    if (comma < 0) break; start = comma + 1;
+                }
             }
         }
         server.sendHeader("Location", "/settings"); server.send(303);
@@ -1156,9 +1216,14 @@ void setupWebServer() {
 <meta charset="utf-8"><title>Debug – MMCall</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0;padding:10px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0c0f18;color:#e2e8f0}
+nav{display:flex;background:#080b12;border-bottom:2px solid #1a2540;overflow-x:auto}
+nav a{font-size:.75em;font-weight:600;color:#475569;text-decoration:none;padding:9px 15px;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .2s,border-color .2s}
+nav a:hover{color:#cbd5e1}
+nav a.act{color:#60a5fa;border-bottom-color:#3b82f6}
+.pg{padding:10px}
 h2{font-size:1em;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#f1f5f9;margin-bottom:8px}
-#log{height:58vh;overflow-y:auto;background:#060913;padding:8px;border:1px solid #1a2540;border-radius:4px;font-size:12px;font-family:monospace;white-space:pre-wrap;margin-bottom:8px}
+#log{height:55vh;overflow-y:auto;background:#060913;padding:8px;border:1px solid #1a2540;border-radius:4px;font-size:12px;font-family:monospace;white-space:pre-wrap;margin-bottom:8px}
 .tCALL{color:#f59e0b}.tCLAIM{color:#34d399}.tNTP{color:#60a5fa}
 .tBOOT{color:#a78bfa}.tTIMEOUT{color:#f87171}.tREMOTE{color:#f0abfc}
 .tOTA{color:#38bdf8}.tCFG{color:#4ade80}.tINJECT{color:#fbbf24}.tdef{color:#64748b}
@@ -1169,9 +1234,16 @@ h2{font-size:1em;font-weight:800;letter-spacing:.1em;text-transform:uppercase;co
 .btn.warn:hover{background:#2d0a0a}
 input{background:#0c0f18;color:#e2e8f0;border:1px solid #1a2540;border-radius:4px;padding:5px 8px;font-size:.78em;font-family:monospace}
 #st{font-size:.72em;color:#334155;margin-left:4px}
-a{color:#60a5fa;font-size:.78em;text-decoration:none}
 </style></head><body>
-<h2>&#x1F4E1; Debug Console</h2>
+<nav>
+<a href="/">Dashboard</a>
+<a href="/settings">&#9881; Settings</a>
+<a href="/mesh">&#x1F4E1; Mesh</a>
+<a href="/debug" class="act">&#x1F4BB; Debug</a>
+<a href="/history">&#x1F4CB; History</a>
+</nav>
+<div class="pg">
+<h2>&#x1F4BB; Debug Console</h2>
 <div class="row">
   <button class="btn" onclick="inj({cmd:'catchup'})">Force Catchup</button>
   <button class="btn" onclick="inj({cmd:'timesync'})">Force TimeSync</button>
@@ -1187,7 +1259,6 @@ a{color:#60a5fa;font-size:.78em;text-decoration:none}
   <span id="st"></span>
 </div>
 <div id="log"></div>
-<div style="margin-top:6px"><a href="/">&#8592; Dashboard</a></div>
 <script>
 var last=0;
 function g(x){return document.getElementById(x)}
@@ -1205,7 +1276,7 @@ function poll(){fetch('/api/log').then(r=>r.json()).then(d=>{
 function inj(c){return fetch('/api/inject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});}
 function clearLog(){g('log').innerHTML='';last=0;}
 setInterval(poll,1500);poll();
-</script></body></html>)rawliteral");
+</script></div></body></html>)rawliteral");
     });
 
     server.begin();
@@ -1341,8 +1412,9 @@ void loop() {
             updateNeighbor(pkt.srcID, pktRSSI, pkt.hopCount, peerLabel, peerZone, isLine);
 
             if (pkt.srcID != myDeviceID && !isDuplicate(pkt.srcID, pkt.seqNum)) {
-                // Forward
-                if (pkt.type != PKT_CONFIG && pkt.type != PKT_CATCHUP &&
+                // Forward — allow unicast CONFIG through so target device can receive it
+                bool isUnicastCfg = (pkt.type == PKT_CONFIG && pktGetDest(pkt) != 0);
+                if ((pkt.type != PKT_CONFIG || isUnicastCfg) && pkt.type != PKT_CATCHUP &&
                     pkt.type != PKT_TIMESYNC && pkt.ttl > 0) {
                     pkt.ttl--; pkt.hopCount++; txEnqueue(&pkt);
                 }

@@ -85,6 +85,10 @@ typedef struct {
     char     configStr[20];
 } MeshPacket;
 
+// For PKT_CONFIG, item[0..3] carries an optional unicast destID (0 = zone broadcast).
+inline void     pktSetDest(MeshPacket& p, uint32_t id) { memcpy(p.item, &id, 4); }
+inline uint32_t pktGetDest(const MeshPacket& p)        { uint32_t id=0; memcpy(&id, p.item, 4); return id; }
+
 // ============================================================
 // LOG RING BUFFER
 // ============================================================
@@ -816,11 +820,11 @@ void loop() {
         if (state == RADIOLIB_ERR_NONE) {
             updateNeighbor(pkt.srcID, pktRSSI, pkt.hopCount, pkt.item);
             if (pkt.srcID != myDeviceID && !isDuplicate(pkt.srcID, pkt.seqNum)) {
-                // Forward with random backoff — NOT if config/HB/timesync
-                if (pkt.type != PKT_CONFIG && pkt.type != PKT_HEARTBEAT &&
+                // Forward — skip HB/timesync; forward unicast CONFIG so it can reach target
+                bool isUnicastCfg = (pkt.type == PKT_CONFIG && pktGetDest(pkt) != 0);
+                if ((pkt.type != PKT_CONFIG || isUnicastCfg) && pkt.type != PKT_HEARTBEAT &&
                     pkt.type != PKT_TIMESYNC && pkt.ttl > 0) {
                     pkt.ttl--; pkt.hopCount++;
-                    // Use queue for forwarding to avoid blocking RX
                     txEnqueue(&pkt);
                 }
 
@@ -891,28 +895,31 @@ void loop() {
                 }
 
                 if (pkt.type == PKT_CONFIG) {
-                    prefs.begin("tugger-v1", false);
-                    switch (pkt.configKey) {
-                        case 1:  // clear_pin + restart
-                            prefs.putInt("clear_pin", pkt.configVal);
-                            prefs.putUInt("my_seq", mySeqNum + 1000);
-                            prefs.end(); ESP.restart(); break;
-                        case 9:  // wifi_ota enable + reconnect (matches Line Device key 9)
-                            wifiOtaEnabled = (pkt.configVal == 1);
-                            prefs.putBool("wifi_ota", wifiOtaEnabled);
-                            prefs.end();
-                            LOG("CFG", "WiFiOTA=%d", wifiOtaEnabled);
-                            if (wifiOtaEnabled) initWifiOta();
-                            return;
-                        case 11: // wifi_ssid (matches Line Device key 11)
-                            wifiSSID = String(pkt.configStr);
-                            prefs.putString("wifi_ssid", wifiSSID); break;
-                        case 12: // wifi_pass (matches Line Device key 12)
-                            wifiPass = String(pkt.configStr);
-                            prefs.putString("wifi_pass", wifiPass); break;
-                        default: break;
+                    uint32_t destID = pktGetDest(pkt);
+                    if (destID == 0 || destID == myDeviceID) {
+                        prefs.begin("tugger-v1", false);
+                        switch (pkt.configKey) {
+                            case 1:  // clear_pin + restart
+                                prefs.putInt("clear_pin", pkt.configVal);
+                                prefs.putUInt("my_seq", mySeqNum + 1000);
+                                prefs.end(); ESP.restart(); break;
+                            case 9:  // wifi_ota enable + reconnect (matches Line Device key 9)
+                                wifiOtaEnabled = (pkt.configVal == 1);
+                                prefs.putBool("wifi_ota", wifiOtaEnabled);
+                                prefs.end();
+                                LOG("CFG", "WiFiOTA=%d", wifiOtaEnabled);
+                                if (wifiOtaEnabled) initWifiOta();
+                                return;
+                            case 11: // wifi_ssid (matches Line Device key 11)
+                                wifiSSID = String(pkt.configStr);
+                                prefs.putString("wifi_ssid", wifiSSID); break;
+                            case 12: // wifi_pass (matches Line Device key 12)
+                                wifiPass = String(pkt.configStr);
+                                prefs.putString("wifi_pass", wifiPass); break;
+                            default: break;
+                        }
+                        prefs.end();
                     }
-                    prefs.end();
                 }
 
                 if (pkt.type == PKT_DEBUG) { /* no action — Collector handles it */ }

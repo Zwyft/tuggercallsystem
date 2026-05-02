@@ -102,6 +102,9 @@ typedef struct {
     char     configStr[20];
 } MeshPacket;
 
+// For PKT_CONFIG, item[0..3] carries an optional unicast destID (0 = zone broadcast).
+inline uint32_t pktGetDest(const MeshPacket* p) { uint32_t id=0; memcpy(&id, p->item, 4); return id; }
+
 typedef struct {
     uint32_t sessionID; uint8_t type; uint32_t chunkIndex;
     uint32_t totalChunks; uint32_t totalSize; uint16_t dataLen;
@@ -667,6 +670,8 @@ void sendOtaAck(uint32_t sessionID, uint32_t chunkIndex) {
 // ============================================================
 void handleConfigPacket(void* raw) {
     MeshPacket* pkt = reinterpret_cast<MeshPacket*>(raw);
+    uint32_t destID = pktGetDest(pkt);
+    if (destID != 0 && destID != myDeviceID) return;
     bool needRestart = false;
     switch (pkt->configKey) {
         case 1:  LINE_ID     = String(pkt->configStr);                      break;
@@ -989,7 +994,8 @@ void loop() {
             }
             // Standard mesh path
             else if (pkt->srcID != myDeviceID && !isDuplicate(pkt->srcID, pkt->seqNum)) {
-                if (pkt->type != PKT_CONFIG && pkt->type != PKT_HEARTBEAT && pkt->ttl > 0) {
+                bool isUnicastCfg = (pkt->type == PKT_CONFIG && pktGetDest(pkt) != 0);
+                if ((pkt->type != PKT_CONFIG || isUnicastCfg) && pkt->type != PKT_HEARTBEAT && pkt->ttl > 0) {
                     pkt->ttl--; pkt->hopCount++; txEnqueue(pkt);
                 }
 
