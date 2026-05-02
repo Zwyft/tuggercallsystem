@@ -457,7 +457,7 @@ void sendConfigPacket(uint8_t zone, uint8_t key, const String& val, uint32_t des
     if (key == 3 && val.length() > 19) {
         MeshPacket start; memset(&start, 0, sizeof(start));
         start.srcID = myDeviceID; start.seqNum = nextSeq();
-        start.type = PKT_CONFIG; start.ttl = getSmartTTL(); start.configKey = 3;
+        start.type = PKT_CONFIG; start.ttl = getSmartTTL(); start.configKey = 30;
         applyDest(start);
         strncpy(start.configStr, "[", 19); start.configStr[19] = '\0';
         transmitMesh(&start);
@@ -471,7 +471,7 @@ void sendConfigPacket(uint8_t zone, uint8_t key, const String& val, uint32_t des
             pkt.srcID = myDeviceID; pkt.seqNum = nextSeq();
             pkt.type = PKT_CONFIG; pkt.ttl = getSmartTTL(); pkt.configKey = 30;
             applyDest(pkt);
-            item.toCharArray(pkt.configStr, 19); pkt.configStr[19] = '\0';
+            item.toCharArray(pkt.configStr, sizeof(pkt.configStr)); pkt.configStr[19] = '\0';
             transmitMesh(&pkt);
             delay(80);
             i = e + 1;
