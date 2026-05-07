@@ -1040,7 +1040,7 @@ void loop() {
                     }
                 }
 
-                if (pkt->type == PKT_CATCHUP && pkt->route == myZone) {
+                if (pkt->type == PKT_CATCHUP && isMyZone(pkt->route)) {
                     // BUG FIX: Catchup was reviving orders that the tugger
                     // had just cleared. Now: if clearedAt is set and less
                     // than 10 minutes ago, ignore the catchup for that item.

@@ -420,9 +420,9 @@ void broadcastCatchup() {
         if (radio.scanChannel() == RADIOLIB_CHANNEL_FREE) {
             radio.transmit(reinterpret_cast<uint8_t*>(&pkt), sizeof(MeshPacket));
             lastTX = millis();
+            sent++;
         }
         radio.startReceive();
-        sent++;
         delay(random(60, 120)); // Inter-packet spacing
     }
     LOG("CATCHUP", "Sent %d orders", sent);
@@ -1057,7 +1057,12 @@ void setupWebServer() {
                 history[h].part[23] = '\0';
                 strncpy(history[h].timeOrdered, activeOrders[i].timeOrdered, 5);
                 history[h].timeOrdered[5] = '\0';
-                history[h].elapsedSec = (millis() - activeOrders[i].timestamp) / 1000;
+                if (activeOrders[i].claimed && activeOrders[i].claimedAt > 0)
+                    history[h].elapsedSec = (activeOrders[i].claimedAt - activeOrders[i].timestamp) / 1000;
+                else if (activeOrders[i].timedOut)
+                    history[h].elapsedSec = 45UL * 60;
+                else
+                    history[h].elapsedSec = (millis() - activeOrders[i].timestamp) / 1000;
                 history[h].zone    = activeOrders[i].zone;
                 history[h].claimed = activeOrders[i].claimed;
                 numHistory++; // Increment after slot is fully written

@@ -451,7 +451,8 @@ void addActiveCall(uint32_t srcID, uint32_t seqNum, const char* item,
     for (int i = 0; i < MAX_ACTIVE_CALLS; i++) {
         if (activeCalls[i].valid && activeCalls[i].zone == zone &&
             strncmp(activeCalls[i].item, item, 27) == 0) {
-            activeCalls[i].seqNum = seqNum; // Update to latest seqNum
+            activeCalls[i].seqNum   = seqNum;   // Update to latest seqNum
+            activeCalls[i].priority = priority; // Propagate urgency escalation
             return;
         }
     }
