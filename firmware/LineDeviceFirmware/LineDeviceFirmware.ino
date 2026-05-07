@@ -954,10 +954,19 @@ void loop() {
             updateNeighbor(pkt->srcID, pktRSSI, pkt->hopCount);
 
             // OTA path — use raw byte offset 4 for OTA type detection.
-            // Guard: CHUNK and END only valid during an active OTA session.
-            // This prevents false detection when a MeshPacket's seqNum byte happens
-            // to equal an OTA type constant (e.g. seqNum=1029, byte[0]=5=PKT_OTA_BEGIN).
-            bool isOtaPacket = loraOtaEnabled && (
+            // Guard 1: CHUNK and END only valid during an active OTA session.
+            // Guard 2: raw[8] is MeshPacket.type for mesh packets (always a known
+            // non-zero value). For OtaPackets with natural struct alignment,
+            // raw[8] is chunkIndex[0] which may be 0 or small. If raw[8] matches
+            // a known mesh type the incoming bytes are a MeshPacket, not an OtaPacket,
+            // even if raw[4] (seqNum low-byte) happens to equal an OTA type constant.
+            // Without this guard ~1.2% of MeshPackets were silently dropped.
+            uint8_t meshTypeByte = raw[8];
+            bool couldBeMesh = (meshTypeByte == PKT_CALL     || meshTypeByte == PKT_CLAIM  ||
+                                meshTypeByte == PKT_CONFIG   || meshTypeByte == PKT_CATCHUP ||
+                                meshTypeByte == PKT_BOOT_REQ || meshTypeByte == PKT_TIMESYNC ||
+                                meshTypeByte == PKT_HEARTBEAT|| meshTypeByte == PKT_DEBUG);
+            bool isOtaPacket = loraOtaEnabled && !couldBeMesh && (
                 (otaTypeByte == PKT_OTA_BEGIN && !otaInProgress) ||
                 (otaTypeByte == PKT_OTA_CHUNK &&  otaInProgress) ||
                 (otaTypeByte == PKT_OTA_END   &&  otaInProgress));
