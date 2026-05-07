@@ -495,7 +495,7 @@ void claimCall(int index) {
     claim.type     = PKT_CLAIM;  claim.route  = activeCalls[index].zone;
     claim.ttl      = getSmartTTL(); claim.hopCount = 0;
     claim.priority = activeCalls[index].priority;
-    claim.flags    = FLAG_ACK_REQ;
+    claim.flags    = 0;
     strncpy(claim.item, activeCalls[index].item, 27); claim.item[27] = '\0';
 
     // Record in cleared cache BEFORE removing — blocks catchup revival
@@ -906,10 +906,9 @@ void loop() {
                             case 9:  // wifi_ota enable + reconnect (matches Line Device key 9)
                                 wifiOtaEnabled = (pkt.configVal == 1);
                                 prefs.putBool("wifi_ota", wifiOtaEnabled);
-                                prefs.end();
                                 LOG("CFG", "WiFiOTA=%d", wifiOtaEnabled);
                                 if (wifiOtaEnabled) initWifiOta();
-                                return;
+                                break;
                             case 11: // wifi_ssid (matches Line Device key 11)
                                 wifiSSID = String(pkt.configStr);
                                 prefs.putString("wifi_ssid", wifiSSID); break;

@@ -1412,10 +1412,11 @@ void loop() {
             updateNeighbor(pkt.srcID, pktRSSI, pkt.hopCount, peerLabel, peerZone, isLine);
 
             if (pkt.srcID != myDeviceID && !isDuplicate(pkt.srcID, pkt.seqNum)) {
-                // Forward — allow unicast CONFIG through so target device can receive it
+                // Forward — allow unicast CONFIG through so target device can receive it.
+                // Heartbeats, catchup, and timesync are not relayed (Collector is the source).
                 bool isUnicastCfg = (pkt.type == PKT_CONFIG && pktGetDest(pkt) != 0);
                 if ((pkt.type != PKT_CONFIG || isUnicastCfg) && pkt.type != PKT_CATCHUP &&
-                    pkt.type != PKT_TIMESYNC && pkt.ttl > 0) {
+                    pkt.type != PKT_TIMESYNC && pkt.type != PKT_HEARTBEAT && pkt.ttl > 0) {
                     pkt.ttl--; pkt.hopCount++; txEnqueue(&pkt);
                 }
 
@@ -1490,7 +1491,7 @@ void loop() {
                 if (pkt.type == PKT_DEBUG) {
                     char remote[92];
                     snprintf(remote, sizeof(remote), "[REMOTE:0x%08X] %s", pkt.srcID, pkt.item);
-                    logWrite(remote);
+                    logWrite("%s", remote);
                 }
             }
         }

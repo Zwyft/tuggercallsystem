@@ -673,6 +673,7 @@ void handleConfigPacket(void* raw) {
     uint32_t destID = pktGetDest(pkt);
     if (destID != 0 && destID != myDeviceID) return;
     bool needRestart = false;
+    bool skipSave    = false;
     switch (pkt->configKey) {
         case 1:  LINE_ID     = String(pkt->configStr);                      break;
         case 2:  myZone      = pkt->configVal;                              break;
@@ -707,10 +708,11 @@ void handleConfigPacket(void* raw) {
                 callTypes[numCallTypes].clearedAt    = 0;
                 numCallTypes++;
             }
+            skipSave = true; // Defer save to avoid 5 NVS writes per burst; caller must saveConfig() after last part
             break;
         default: return;
     }
-    saveConfig();
+    if (!skipSave) saveConfig();
     if (needRestart) {
         prefs.begin(NVS_NS, false);
         prefs.putUInt(NVS_MY_SEQ, mySeqNum + 1000);
