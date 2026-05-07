@@ -700,6 +700,7 @@ void handleConfigPacket(void* raw) {
                 numCallTypes  = 0;
                 selectedCall  = 0;
                 anyCallActive = false; // Reset so display doesn't show blank ORDERED screen
+                skipSave = true; // Don't persist the empty list — wait for at least one append
             } else if (numCallTypes < MAX_CALL_TYPES && strlen(pkt->configStr) > 0) {
                 strncpy(callTypes[numCallTypes].label, pkt->configStr, 23);
                 callTypes[numCallTypes].label[23]   = '\0';
@@ -707,8 +708,8 @@ void handleConfigPacket(void* raw) {
                 callTypes[numCallTypes].priority     = PRIORITY_NORMAL;
                 callTypes[numCallTypes].clearedAt    = 0;
                 numCallTypes++;
+                // skipSave stays false — save each append for power-loss resilience
             }
-            skipSave = true; // Defer save to avoid 5 NVS writes per burst; caller must saveConfig() after last part
             break;
         default: return;
     }
