@@ -1442,8 +1442,9 @@ void loop() {
                         }
                     }
                     if (existingIdx >= 0) {
-                        // Already have this order — just update seqNum reference
-                        activeOrders[existingIdx].seqNum = pkt.seqNum;
+                        // Already have this order — update seqNum and propagate priority
+                        activeOrders[existingIdx].seqNum   = pkt.seqNum;
+                        activeOrders[existingIdx].priority = pkt.priority;
                         LOG("CALL", "Dedup update for %s|%s", lineStr.c_str(), partStr.c_str());
                     }
                     if (existingIdx < 0 && numActiveOrders < MAX_ACTIVE_ORDERS) {
