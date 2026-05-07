@@ -1430,7 +1430,7 @@ void loop() {
                     // device sends a new seqNum which previously bypassed dedup.
                     int existingIdx = -1;
                     for (int i = 0; i < numActiveOrders; i++) {
-                        if (!activeOrders[i].claimed &&
+                        if (!activeOrders[i].claimed && !activeOrders[i].timedOut &&
                             strcmp(activeOrders[i].lineID, lineStr.c_str()) == 0 &&
                             strcmp(activeOrders[i].part,   partStr.c_str()) == 0) {
                             existingIdx = i; break;
